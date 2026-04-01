@@ -1,0 +1,23 @@
+package com.im.server.model.dto;
+
+import com.im.server.model.enums.AuthType;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+@Data
+public class LoginRequest {
+
+    @NotNull(message = "登录类型不能为空")
+    private AuthType authType;
+
+    @NotBlank(message = "账号不能为空")
+    private String account;
+
+    @NotBlank(message = "密码不能为空")
+    private String password;
+
+    private String deviceId;
+
+    private String deviceName;
+}
