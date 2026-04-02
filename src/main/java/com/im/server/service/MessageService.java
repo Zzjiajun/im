@@ -48,6 +48,7 @@ import com.im.server.model.vo.MessageReplyVO;
 import com.im.server.model.vo.MessageSearchPageVO;
 import com.im.server.model.vo.UserSimpleVO;
 import com.im.server.model.vo.WsEvent;
+import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -59,6 +60,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -634,11 +636,21 @@ public class MessageService {
             deliver.setMessageId(messageId);
             deliver.setUserId(userId);
             deliver.setDeliveredAt(LocalDateTime.now());
-            messageDeliverMapper.insert(deliver);
-
-            message.setDeliveredCount(message.getDeliveredCount() + 1);
-            chatMessageMapper.updateById(message);
-            deliveredMessageIds.add(messageId);
+            boolean insertedNewDeliver = false;
+            try {
+                messageDeliverMapper.insert(deliver);
+                insertedNewDeliver = true;
+            } catch (RuntimeException e) {
+                if (!isDuplicateMessageDeliver(e)) {
+                    throw e;
+                }
+                // 并发或客户端重复上报：uk_message_user_deliver 已存在，不重复累加 delivered_count
+            }
+            if (insertedNewDeliver) {
+                message.setDeliveredCount(message.getDeliveredCount() + 1);
+                chatMessageMapper.updateById(message);
+                deliveredMessageIds.add(messageId);
+            }
         }
 
         if (!deliveredMessageIds.isEmpty()) {
@@ -660,6 +672,20 @@ public class MessageService {
                 )));
             }
         }
+    }
+
+    /** 送达记录并发插入或重复请求时，MyBatis/Spring 可能抛出不同层级的包装异常 */
+    private static boolean isDuplicateMessageDeliver(Throwable ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof DuplicateKeyException) {
+                return true;
+            }
+            if (t instanceof SQLIntegrityConstraintViolationException le) {
+                String msg = le.getMessage();
+                return msg != null && msg.contains("uk_message_user_deliver");
+            }
+        }
+        return false;
     }
 
     @Transactional

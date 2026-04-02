@@ -104,7 +104,18 @@ public class UserService {
             throw new BusinessException("用户不存在");
         }
         if (StringUtils.isNotBlank(request.getNickname())) {
-            user.setNickname(request.getNickname());
+            String nick = StringUtils.trim(request.getNickname());
+            if (nick.isEmpty()) {
+                throw new BusinessException("昵称不能为空");
+            }
+            long dup = userMapper.selectCount(
+                new LambdaQueryWrapper<User>()
+                    .eq(User::getNickname, nick)
+                    .ne(User::getId, userId));
+            if (dup > 0) {
+                throw new BusinessException("昵称已被占用");
+            }
+            user.setNickname(nick);
         }
         if (request.getAvatar() != null) {
             user.setAvatar(request.getAvatar());

@@ -36,8 +36,10 @@ import com.im.server.model.vo.UserSimpleVO;
 import com.im.server.model.vo.WsEvent;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -150,6 +152,13 @@ public class ConversationService {
         return listConversationViewsByArchived(userId, false);
     }
 
+    /** 当前用户加入的群聊列表（不含单聊、归档筛选与主列表一致） */
+    public List<ConversationListVO> listGroupConversationViews(Long userId) {
+        return listConversationViews(userId).stream()
+            .filter(v -> ConversationType.GROUP.name().equals(v.getType()))
+            .toList();
+    }
+
     /**
      * 构建单个会话的列表项（用于创建/恢复会话后直接返回，避免依赖主列表筛选条件导致查不到）。
      */
@@ -161,6 +170,31 @@ public class ConversationService {
 
     public List<ConversationListVO> listArchivedConversationViews(Long userId) {
         return listConversationViewsByArchived(userId, true);
+    }
+
+    /** 同一用户同一会话理论上只有一条 membership；异常数据下去重，保留 updatedAt 较新的一条 */
+    private List<ConversationListVO> dedupeConversationListViews(List<ConversationListVO> input) {
+        if (input == null || input.size() <= 1) {
+            return input;
+        }
+        Map<Long, ConversationListVO> map = new LinkedHashMap<>();
+        for (ConversationListVO vo : input) {
+            if (vo.getConversationId() == null) {
+                continue;
+            }
+            map.merge(vo.getConversationId(), vo, (a, b) -> {
+                LocalDateTime ta = a.getUpdatedAt();
+                LocalDateTime tb = b.getUpdatedAt();
+                if (ta == null) {
+                    return b;
+                }
+                if (tb == null) {
+                    return a;
+                }
+                return tb.isAfter(ta) ? b : a;
+            });
+        }
+        return new ArrayList<>(map.values());
     }
 
     private List<ConversationListVO> listConversationViewsByArchived(Long userId, boolean archivedOnly) {
@@ -180,6 +214,7 @@ public class ConversationService {
                 result.add(buildConversationView(userId, conversation));
             }
         }
+        result = dedupeConversationListViews(result);
         result.sort((a, b) -> {
             int pinnedCompare = Boolean.compare(Boolean.TRUE.equals(b.getPinned()), Boolean.TRUE.equals(a.getPinned()));
             if (pinnedCompare != 0) {
@@ -307,7 +342,18 @@ public class ConversationService {
     @Transactional
     public void clearConversation(Long userId, Long conversationId, ClearConversationRequest request) {
         ConversationMember member = getRequiredMember(conversationId, userId);
-        member.setClearMessageId(request.getBeforeMessageId());
+        Long before = request.getBeforeMessageId();
+        if (before == null) {
+            ChatMessage last = chatMessageMapper.selectOne(
+                new LambdaQueryWrapper<ChatMessage>()
+                    .select(ChatMessage::getId)
+                    .eq(ChatMessage::getConversationId, conversationId)
+                    .orderByDesc(ChatMessage::getId)
+                    .last("limit 1")
+            );
+            before = last != null ? last.getId() : null;
+        }
+        member.setClearMessageId(before);
         member.setClearAt(LocalDateTime.now());
         conversationMemberMapper.updateById(member);
         unreadCacheService.clearUnread(userId, conversationId);

@@ -1,4 +1,6 @@
 -- 已有库升级可执行（按需）：
+-- 昵称全局唯一（与注册/改资料校验一致；执行前请先清理重复昵称）：
+-- ALTER TABLE im_user ADD UNIQUE KEY uk_user_nickname (nickname);
 -- ALTER TABLE im_user ADD COLUMN admin TINYINT NOT NULL DEFAULT 0;
 -- ALTER TABLE conversation ADD COLUMN mute_all TINYINT NOT NULL DEFAULT 0;
 -- ALTER TABLE conversation_member ADD COLUMN archived TINYINT NOT NULL DEFAULT 0;

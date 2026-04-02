@@ -58,13 +58,24 @@ public class ConversationController {
     @PostMapping("/group")
     public ApiResponse<GroupDetailVO> createGroup(@CurrentUser LoginUser loginUser,
                                                   @Valid @RequestBody CreateGroupRequest request) {
-        var conversation = conversationService.createGroup(loginUser.getUserId(), request);
-        return ApiResponse.success(conversationService.getGroupDetail(loginUser.getUserId(), conversation.getId()));
+        Long self = loginUser.getUserId();
+        for (Long mid : request.getMemberIds()) {
+            if (mid != null && !mid.equals(self)) {
+                friendService.assertFriend(self, mid);
+            }
+        }
+        var conversation = conversationService.createGroup(self, request);
+        return ApiResponse.success(conversationService.getGroupDetail(self, conversation.getId()));
     }
 
     @GetMapping("/list")
     public ApiResponse<List<ConversationListVO>> list(@CurrentUser LoginUser loginUser) {
         return ApiResponse.success(conversationService.listConversationViews(loginUser.getUserId()));
+    }
+
+    @GetMapping("/groups")
+    public ApiResponse<List<ConversationListVO>> myGroups(@CurrentUser LoginUser loginUser) {
+        return ApiResponse.success(conversationService.listGroupConversationViews(loginUser.getUserId()));
     }
 
     @GetMapping("/archived")
@@ -138,7 +149,13 @@ public class ConversationController {
     public ApiResponse<Void> addMembers(@CurrentUser LoginUser loginUser,
                                         @PathVariable Long conversationId,
                                         @Valid @RequestBody GroupMemberOperateRequest request) {
-        conversationService.addGroupMembers(loginUser.getUserId(), conversationId, request.getMemberIds());
+        Long self = loginUser.getUserId();
+        for (Long mid : request.getMemberIds()) {
+            if (mid != null && !mid.equals(self)) {
+                friendService.assertFriend(self, mid);
+            }
+        }
+        conversationService.addGroupMembers(self, conversationId, request.getMemberIds());
         return ApiResponse.success("已拉人进群", null);
     }
 
@@ -183,6 +200,14 @@ public class ConversationController {
         return ApiResponse.success("已删除会话", null);
     }
 
+    /** 与 DELETE 等价；部分代理/客户端对 DELETE 支持差时用此接口 */
+    @PostMapping("/{conversationId}/hide")
+    public ApiResponse<Void> hide(@CurrentUser LoginUser loginUser,
+                                  @PathVariable Long conversationId) {
+        conversationService.hideConversation(loginUser.getUserId(), conversationId);
+        return ApiResponse.success("已删除会话", null);
+    }
+
     @PostMapping("/{conversationId}/settings")
     public ApiResponse<Void> updateSettings(@CurrentUser LoginUser loginUser,
                                             @PathVariable Long conversationId,
@@ -210,8 +235,9 @@ public class ConversationController {
     @PostMapping("/{conversationId}/clear")
     public ApiResponse<Void> clear(@CurrentUser LoginUser loginUser,
                                    @PathVariable Long conversationId,
-                                   @RequestBody ClearConversationRequest request) {
-        conversationService.clearConversation(loginUser.getUserId(), conversationId, request);
+                                   @RequestBody(required = false) ClearConversationRequest request) {
+        ClearConversationRequest body = request == null ? new ClearConversationRequest() : request;
+        conversationService.clearConversation(loginUser.getUserId(), conversationId, body);
         return ApiResponse.success("聊天记录已清空", null);
     }
 

@@ -51,8 +51,17 @@ public class AuthService {
         if (existed != null) {
             throw new BusinessException("账号已存在");
         }
+        String nickname = StringUtils.trim(request.getNickname());
+        if (nickname.isEmpty()) {
+            throw new BusinessException("昵称不能为空");
+        }
+        long nickDup = userMapper.selectCount(
+            new LambdaQueryWrapper<User>().eq(User::getNickname, nickname));
+        if (nickDup > 0) {
+            throw new BusinessException("昵称已被占用");
+        }
         User user = new User();
-        user.setNickname(request.getNickname());
+        user.setNickname(nickname);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setStatus(1);
         user.setAdmin(0);
@@ -100,10 +109,10 @@ public class AuthService {
             assertAccountActive(user);
         } else {
             user = new User();
-            String nick = StringUtils.defaultIfBlank(
+            String nickBase = StringUtils.defaultIfBlank(
                 request.getNickname(),
                 "u_" + openId.substring(0, Math.min(8, openId.length())));
-            user.setNickname(nick);
+            user.setNickname(pickUniqueOAuthNickname(nickBase));
             user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
             user.setStatus(1);
             user.setAdmin(0);
@@ -167,6 +176,25 @@ public class AuthService {
         if (authType == AuthType.PHONE && !appAuthProperties.isPhoneAuthEnabled()) {
             throw new BusinessException("当前仅支持邮箱，请使用邮箱注册或登录");
         }
+    }
+
+    private String pickUniqueOAuthNickname(String base) {
+        String n = StringUtils.trimToEmpty(base);
+        if (n.length() > 50) {
+            n = n.substring(0, 50);
+        }
+        if (n.isEmpty()) {
+            n = "user";
+        }
+        String candidate = n;
+        int suffix = 0;
+        while (userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getNickname, candidate)) > 0) {
+            suffix++;
+            String suf = "_" + suffix;
+            int maxBase = Math.max(1, 64 - suf.length());
+            candidate = (n.length() > maxBase ? n.substring(0, maxBase) : n) + suf;
+        }
+        return candidate;
     }
 
     private User getByAccount(AuthType authType, String account) {

@@ -1,0 +1,117 @@
+/**
+ * 设计变量参考 HuLa 默认主题（teal 侧栏 + 聊天区渐变）
+ * @see https://github.com/HuLaSpark/HuLa/blob/master/src/styles/scss/theme/default.scss
+ */
+:root {
+  --im-accent: #13987f;
+  --im-rail-mid: #64a29c;
+  --im-bubble-self: #c5ebe0;
+  --im-bubble-self-border: #7ec4b5;
+
+  --wx-green: var(--im-accent);
+  --wx-green-bubble: var(--im-bubble-self);
+  --wx-bg: #e8f0ee;
+  --im-chat-bg: radial-gradient(
+      circle at 0% 0%,
+      rgba(255, 209, 255, 0.28) 0%,
+      transparent 55%
+    ),
+    radial-gradient(circle at 100% 0%, rgba(130, 193, 187, 0.35) 0%, transparent 50%),
+    linear-gradient(180deg, #eef2f1 0%, #e4ebea 100%);
+  --wx-sidebar: #ffffff;
+  --wx-list-hover: rgba(99, 99, 99, 0.06);
+  --wx-border: #dfe8e5;
+  --wx-text: #1a1f1e;
+  --wx-sub: #6b7a78;
+  --wx-white: #ffffff;
+  --wx-danger: #e05d5d;
+  --wx-card-shadow: 0 4px 24px rgba(19, 152, 127, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --wx-rail-bg: linear-gradient(165deg, #6fb3aa 0%, #4d968a 52%, #3d7a73 100%);
+  --auth-page-bg: radial-gradient(circle at 12% -5%, rgba(255, 209, 255, 0.4) 0%, transparent 48%),
+    radial-gradient(circle at 88% 0%, rgba(130, 193, 187, 0.38) 0%, transparent 45%),
+    linear-gradient(165deg, #f0f4f3 0%, #e8eeec 100%);
+
+  font-family:
+    'Plus Jakarta Sans',
+    'Segoe UI',
+    'PingFang SC',
+    'Microsoft YaHei',
+    system-ui,
+    sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--wx-bg);
+  color: var(--wx-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+a {
+  color: var(--wx-green);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.wx-btn-primary {
+  background: linear-gradient(180deg, #1cad8f 0%, var(--im-accent) 100%);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 12px;
+  width: 100%;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(19, 152, 127, 0.35);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.wx-btn-primary:not(:disabled):hover {
+  box-shadow: 0 4px 16px rgba(19, 152, 127, 0.42);
+  transform: translateY(-1px);
+}
+.wx-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wx-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--wx-border);
+  border-radius: 12px;
+  background: #fafcfb;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.wx-input:hover {
+  background: #fff;
+}
+.wx-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(19, 152, 127, 0.2);
+  border-color: var(--im-accent);
+}
