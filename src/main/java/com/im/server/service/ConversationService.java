@@ -416,8 +416,16 @@ public class ConversationService {
             new LambdaQueryWrapper<ConversationMember>().eq(ConversationMember::getConversationId, conversationId)
         );
         for (ConversationMember member : members) {
+            boolean changed = false;
             if (member.getDeletedAt() != null) {
                 member.setDeletedAt(null);
+                changed = true;
+            }
+            if (Integer.valueOf(1).equals(member.getArchived())) {
+                member.setArchived(0);
+                changed = true;
+            }
+            if (changed) {
                 conversationMemberMapper.updateById(member);
             }
         }
@@ -426,10 +434,25 @@ public class ConversationService {
     @Transactional
     public void restoreConversationForUser(Long userId, Long conversationId) {
         ConversationMember member = getMember(conversationId, userId);
-        if (member != null && member.getDeletedAt() != null) {
-            member.setDeletedAt(null);
-            conversationMemberMapper.updateById(member);
+        if (member != null) {
+            boolean changed = false;
+            if (member.getDeletedAt() != null) {
+                member.setDeletedAt(null);
+                changed = true;
+            }
+            if (Integer.valueOf(1).equals(member.getArchived())) {
+                member.setArchived(0);
+                changed = true;
+            }
+            if (changed) {
+                conversationMemberMapper.updateById(member);
+            }
         }
+    }
+
+    @Transactional
+    public void appendSystemMessage(Long operatorId, Long conversationId, String content) {
+        createSystemMessage(operatorId, conversationId, content);
     }
 
     @Transactional

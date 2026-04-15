@@ -57,6 +57,7 @@
 - 图片/视频文件上传
 - 语音消息基础结构
 - 视频消息元信息
+- 基于 Agora 的 1v1 语音通话（Web 端 MVP）
 - WebSocket 实时消息推送
 - Swagger 接口文档
 
@@ -96,6 +97,22 @@ source src/main/resources/sql/migrate_utf8mb4.sql;
 
 JDBC 的 `characterEncoding` 必须为 **`UTF-8`**（Java 没有名为 `utf8mb4` 的 Charset；写成 `utf8mb4` 会启动报错）。**emoji 能否入库**取决于 MySQL 表是否为 **`utf8mb4`**（执行上面的 `migrate_utf8mb4.sql` 即可）。
 
+若库已存在、需补全消息幂等字段，可执行：
+
+```sql
+source src/main/resources/sql/migrate_client_msg_id.sql;
+```
+
+### 配置与环境变量（生产必读）
+
+敏感信息**勿提交仓库**。可复制 `src/main/resources/application-local.example.yml` 为 `application-local.yml`（加入 `.gitignore`），或通过环境变量覆盖，例如：`SPRING_DATASOURCE_URL` / `SPRING_DATASOURCE_USERNAME` / `SPRING_DATASOURCE_PASSWORD`、`SPRING_DATA_REDIS_HOST`、`JWT_SECRET`（须足够长以满足 HMAC）、`MINIO_*`、`AGORA_APP_ID` / `AGORA_APP_CERTIFICATE`、`MAIL_USERNAME` / `MAIL_PASSWORD`。
+
+**WebSocket 水平扩展**：默认使用内存 Simple Broker（仅单实例进程内可靠）。多实例请安装 **RabbitMQ** 并启用 **STOMP 插件**（默认监听 `61613`），设置环境变量 `WS_STOMP_RELAY_ENABLED=true`，并配置 `RABBITMQ_STOMP_HOST` 等（见 `app.websocket.relay`）。
+
+**STOMP 入站限流**：`app.websocket.rate-limit`（依赖 Redis），对 `/app/chat.send`、`/app/chat.typing`、`/app/chat.deliver` 按用户分钟桶限流，避免绕过 HTTP `/api` 限流。
+
+**发消息幂等**：`POST /messages/send` 与 STOMP `/app/chat.send` 可带 `clientMsgId`（≤64 字符）；同一发送者重复提交返回同一条消息。Web 客户端默认每次发送自动生成 UUID。
+
 ## 启动
 
 ```bash
@@ -112,7 +129,7 @@ npm install
 npm run dev
 ```
 
-浏览器打开 `http://127.0.0.1:5174`，使用 **`im_user.admin = 1`** 的管理员账号登录（与普通 IM 共用 `POST /api/auth/login`）。后台包含：数据概览、用户列表与封禁/解封、举报列表、**全库消息搜索**（审计用）。
+浏览器打开 `http://127.0.0.1:5174`，使用 **`im_user.admin = 1`** 的管理员账号登录（与普通 IM 共用 `POST /api/auth/login`）。后台为 **Vue 3 + Vite + Element Plus**（表格、分页、表单与布局），包含：数据概览、用户列表与封禁/解封、举报列表、**全库消息搜索**（审计用）。
 
 ### 限流与消息搜索说明
 
@@ -211,6 +228,7 @@ logging:
 - 订阅地址：`/user/queue/messages`
 - 推送事件类型：`MESSAGE`、`READ`、`RECALL`、`PRESENCE`、`TYPING`、`DELIVERED`、`GROUP_UPDATED`
   当前还包含消息编辑后的 `EDIT` 和群聊提及用的 `MENTION`
+  以及语音通话相关：`CALL_INVITE`、`CALL_ACCEPTED`、`CALL_REJECTED`、`CALL_ENDED`
 
 ## 新增接口说明
 
@@ -280,6 +298,11 @@ logging:
 - `POST /api/auth/oauth/login` 第三方占位登录
 - `POST /api/auth/logout`、`POST /api/auth/logout-all`、`GET /api/auth/sessions`、`DELETE /api/auth/sessions/{sessionId}` 会话管理
 - `POST /api/users/push-token` 登记推送 Token（`platform` + `deviceToken`）；离线时若配置了 `app.push.webhook-url`，服务端会向该地址 **POST JSON** 触发第三方推送（见下）
+- `POST /api/calls/voice/start` 发起 1v1 语音通话（仅单聊）
+- `POST /api/calls/voice/{callId}/accept` 接听语音通话
+- `POST /api/calls/voice/{callId}/reject` 拒绝语音通话
+- `POST /api/calls/voice/{callId}/end` 挂断 / 结束语音通话
+- `GET /api/calls/voice/{callId}/agora-token` 获取 Agora RTC Token（接通后加入频道）
 - `GET /api/stickers/packs` 表情包列表；管理员 `POST /api/stickers/packs`、`POST /api/stickers/items`
 - `GET /api/admin/reports` 举报列表（需 `im_user.admin=1`，JWT 中带 `admin` 声明）
 
@@ -292,6 +315,13 @@ logging:
 - `spring.mail.*`：配置后服务端可向邮箱投递验证码（未配置时仍可能仅写日志，视 `app.auth.verify-code-log` 等而定）
 - 短信：默认 `LoggingSmsVerifyCodeSender` 为桩实现；生产可自定义 Bean 实现 `SmsVerifyCodeSender` 并 `@Primary` 对接阿里云/腾讯云等
 - `app.auth.verify-code-log`：是否在日志中打印验证码（生产建议关闭，仅依赖邮件/短信通道）
+- **Agora 语音通话**（`app.agora`）：
+  - `enabled`：是否启用语音通话
+  - `app-id`：Agora App ID（建议环境变量 `AGORA_APP_ID`）
+  - `app-certificate`：Agora App Certificate（建议环境变量 `AGORA_APP_CERTIFICATE`，勿入库）
+  - `rtc-token-expire-seconds`：RTC Token 有效期
+  - `session-ttl-seconds`：Redis 中通话状态保留时间
+  - `ring-timeout-seconds`：振铃超时秒数
 - **离线推送 Webhook**（`app.push`）：用户离线且存在 device token 时，若设置 `webhook-url`，后端 **POST** 到该 URL，JSON 体字段包括：`recipientUserId`、`conversationId`、`messageId`、`preview`（文本预览）、`tokens`（数组，每项为 `{ platform, deviceToken }`）。可选 `webhook-header-name` / `webhook-header-value` 用于鉴权。未配置时仍为日志桩，便于本地开发。
 
 将用户设为管理员（执行一次 SQL）：`UPDATE im_user SET admin = 1 WHERE id = <用户ID>;`

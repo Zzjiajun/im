@@ -9,6 +9,8 @@ public class WsChatPayload {
 
     private Long conversationId;
     private MessageType type;
+    /** 与 HTTP 发消息一致，可选幂等键 */
+    private String clientMsgId;
     private String content;
     private String mediaUrl;
     private String mediaCoverUrl;

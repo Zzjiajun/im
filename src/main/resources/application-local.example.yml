@@ -1,0 +1,15 @@
+# 复制为 application-local.yml（勿提交仓库），用于本机覆盖敏感配置
+spring:
+  datasource:
+    password: your-mysql-password
+  mail:
+    username: your@email.com
+    password: your-app-password
+
+app:
+  jwt:
+    secret: replace-with-long-random-secret-at-least-32-chars
+  minio:
+    endpoint: http://127.0.0.1:9000
+    access-key: minio-access
+    secret-key: minio-secret

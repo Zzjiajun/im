@@ -1,20 +1,20 @@
 server:
-  port: 8075
+  port: ${SERVER_PORT:8075}
 
 spring:
   application:
     name: im-server
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    # characterEncoding 须为 Java 识别的名称 UTF-8；库表用 utf8mb4（见 schema / migrate_utf8mb4.sql）才能存 emoji
-    url: jdbc:mysql://127.0.0.1:3306/im_server?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: 123456
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/im_server?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
   data:
     redis:
-      host: 127.0.0.1
-      port: 6379
-      database: 0
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      database: ${SPRING_DATA_REDIS_DATABASE:0}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
       timeout: 5s
   servlet:
     multipart:
@@ -22,13 +22,11 @@ spring:
       max-request-size: 200MB
   jackson:
     default-property-inclusion: non_null
-  # Gmail SMTP：须使用「应用专用密码」，不要用普通 Gmail 登录密码
-  # 敏感信息勿提交仓库：用环境变量 MAIL_USERNAME / MAIL_PASSWORD，或本地 application-local.yml（勿入库）
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: 1848875071j@gmail.com
-    password: yjvb pfmv fcay fvjh
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     default-encoding: UTF-8
     properties:
       mail:
@@ -48,7 +46,6 @@ logging:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    # 使用 Slf4j 输出 SQL；勿与 linkkou 等「拼接完整 SQL」的拦截器同时使用（BCrypt 含 $2a$ 会触发 replaceFirst 非法组引用）
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:
@@ -59,41 +56,52 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  agora:
+    enabled: ${AGORA_ENABLED:true}
+    app-id: ${AGORA_APP_ID:}
+    app-certificate: ${AGORA_APP_CERTIFICATE:}
+    rtc-token-expire-seconds: ${AGORA_RTC_TOKEN_EXPIRE_SECONDS:3600}
+    session-ttl-seconds: ${AGORA_SESSION_TTL_SECONDS:7200}
+    ring-timeout-seconds: ${AGORA_RING_TIMEOUT_SECONDS:45}
   rate-limit:
     enabled: true
     general-per-minute: 240
     auth-ip-per-minute: 45
     search-per-minute: 60
   jwt:
-    secret: please-change-this-secret-key-to-a-very-long-value
-    access-token-expire-seconds: 86400
-    refresh-token-expire-seconds: 2592000
+    secret: ${JWT_SECRET:dev-local-only-secret-min-32-chars!!}
+    access-token-expire-seconds: ${JWT_ACCESS_TOKEN_EXPIRE_SECONDS:86400}
+    refresh-token-expire-seconds: ${JWT_REFRESH_TOKEN_EXPIRE_SECONDS:2592000}
   auth:
-    # 注册是否强制验证码（与前端「必填」一致）
     verify-on-register: false
-    # true 时开放手机号注册/登录；false 时仅邮箱（默认）
     phone-auth-enabled: false
     code-ttl-seconds: 300
     send-code-min-interval-seconds: 60
     verify-code-log: true
     verify-email-subject: IM 验证码
-    # true：手机号仅打日志；接短信可改 false 并配置 sms-webhook，或自行实现 SmsVerifyCodeSender @Bean
     sms-stub-mode: true
     sms-webhook:
       enabled: false
-      # url: https://your-service.example.com/internal/sms/send
-      # header-name: Authorization
-      # header-value: Bearer xxx
   minio:
-    endpoint: http://47.89.251.203:9000
-    access-key: 2Q73HLqewqURe0IAb7L8
-    secret-key: 3nnke3XxJJglzxUMtUu7U9Vb4DOTZgXIqb3LydnT
-    bucket: im-media
+    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
+    bucket: ${MINIO_BUCKET:im-media}
   websocket:
     allowed-origins:
-      - "*"
-  # 离线推送：配置后向 webhook-url POST JSON，由自建服务对接 FCM/APNs（未配置则仅打日志）
+      - ${WEBSOCKET_ALLOWED_ORIGIN:*}
+    relay:
+      enabled: ${WS_STOMP_RELAY_ENABLED:false}
+      host: ${RABBITMQ_STOMP_HOST:127.0.0.1}
+      port: ${RABBITMQ_STOMP_PORT:61613}
+      client-login: ${RABBITMQ_STOMP_CLIENT_LOGIN:guest}
+      client-passcode: ${RABBITMQ_STOMP_CLIENT_PASSCODE:guest}
+      system-login: ${RABBITMQ_STOMP_SYSTEM_LOGIN:guest}
+      system-passcode: ${RABBITMQ_STOMP_SYSTEM_PASSCODE:guest}
+    rate-limit:
+      enabled: true
+      send-per-minute: ${WS_STOMP_SEND_PER_MINUTE:120}
+      typing-per-minute: ${WS_STOMP_TYPING_PER_MINUTE:90}
+      deliver-per-minute: ${WS_STOMP_DELIVER_PER_MINUTE:180}
   push:
-    webhook-url: ""
-    # webhook-header-name: Authorization
-    # webhook-header-value: Bearer xxx
+    webhook-url: ${PUSH_WEBHOOK_URL:}

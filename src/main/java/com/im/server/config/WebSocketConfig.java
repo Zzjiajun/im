@@ -12,10 +12,11 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @Configuration
 @EnableWebSocketMessageBroker
 @RequiredArgsConstructor
-@EnableConfigurationProperties(WebSocketProperties.class)
+@EnableConfigurationProperties({WebSocketProperties.class, AgoraProperties.class})
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final WebSocketAuthChannelInterceptor webSocketAuthChannelInterceptor;
+    private final WebSocketStompRateLimitChannelInterceptor webSocketStompRateLimitChannelInterceptor;
     private final WebSocketProperties webSocketProperties;
 
     @Override
@@ -26,13 +27,27 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        registry.enableSimpleBroker("/queue", "/topic");
+        if (webSocketProperties.getRelay().isEnabled()) {
+            var r = webSocketProperties.getRelay();
+            registry.enableStompBrokerRelay("/queue", "/topic")
+                .setRelayHost(r.getHost())
+                .setRelayPort(r.getPort())
+                .setClientLogin(r.getClientLogin())
+                .setClientPasscode(r.getClientPasscode())
+                .setSystemLogin(r.getSystemLogin())
+                .setSystemPasscode(r.getSystemPasscode());
+        } else {
+            registry.enableSimpleBroker("/queue", "/topic");
+        }
         registry.setApplicationDestinationPrefixes("/app");
         registry.setUserDestinationPrefix("/user");
     }
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(webSocketAuthChannelInterceptor);
+        registration.interceptors(
+            webSocketAuthChannelInterceptor,
+            webSocketStompRateLimitChannelInterceptor
+        );
     }
 }

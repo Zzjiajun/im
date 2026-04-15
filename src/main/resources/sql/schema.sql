@@ -107,9 +107,11 @@ CREATE TABLE IF NOT EXISTS chat_message (
     recalled TINYINT NOT NULL DEFAULT 0,
     recalled_by BIGINT DEFAULT NULL,
     recalled_at DATETIME DEFAULT NULL,
+    client_msg_id VARCHAR(64) DEFAULT NULL,
     created_at DATETIME NOT NULL,
     KEY idx_conversation_id (conversation_id),
-    KEY idx_sender_id (sender_id)
+    KEY idx_sender_id (sender_id),
+    UNIQUE KEY uk_chat_sender_client_msg (sender_id, client_msg_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS message_read (

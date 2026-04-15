@@ -5,6 +5,7 @@ import com.im.server.config.PushProperties;
 import com.im.server.mapper.UserPushTokenMapper;
 import com.im.server.model.entity.UserPushToken;
 import com.im.server.model.vo.ChatMessageVO;
+import com.im.server.util.OfflinePushPreview;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -40,7 +41,7 @@ public class OfflinePushService {
             log.debug("offline push skipped: no device token userId={}", recipientUserId);
             return;
         }
-        String preview = StringUtils.abbreviate(StringUtils.defaultString(message.getContent()), 80);
+        String preview = OfflinePushPreview.fromMessage(message);
         if (StringUtils.isNotBlank(pushProperties.getWebhookUrl())) {
             postWebhook(recipientUserId, message, tokens, preview);
         } else {

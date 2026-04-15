@@ -99,6 +99,18 @@ public class MessageService {
             request.getMentionAll()
         );
 
+        String clientMsgId = StringUtils.trimToNull(request.getClientMsgId());
+        if (clientMsgId != null) {
+            ChatMessage existing = chatMessageMapper.selectOne(
+                new LambdaQueryWrapper<ChatMessage>()
+                    .eq(ChatMessage::getSenderId, userId)
+                    .eq(ChatMessage::getClientMsgId, clientMsgId)
+            );
+            if (existing != null) {
+                return buildMessageVO(existing, userId);
+            }
+        }
+
         ChatMessage message = new ChatMessage();
         message.setConversationId(request.getConversationId());
         message.setSenderId(userId);
@@ -115,8 +127,23 @@ public class MessageService {
         message.setMentionAll(Boolean.TRUE.equals(request.getMentionAll()) ? 1 : 0);
         message.setMentionUserIds(joinMentionUserIds(request.getMentionUserIds()));
         message.setRecalled(0);
+        message.setClientMsgId(clientMsgId);
         message.setCreatedAt(LocalDateTime.now());
-        chatMessageMapper.insert(message);
+        try {
+            chatMessageMapper.insert(message);
+        } catch (DuplicateKeyException e) {
+            if (clientMsgId != null) {
+                ChatMessage raced = chatMessageMapper.selectOne(
+                    new LambdaQueryWrapper<ChatMessage>()
+                        .eq(ChatMessage::getSenderId, userId)
+                        .eq(ChatMessage::getClientMsgId, clientMsgId)
+                );
+                if (raced != null) {
+                    return buildMessageVO(raced, userId);
+                }
+            }
+            throw e;
+        }
 
         conversationService.restoreConversationForUser(userId, message.getConversationId());
         conversationService.touchConversation(message.getConversationId(), message.getId(), buildPreview(message));
@@ -1055,6 +1082,7 @@ public class MessageService {
             .recalled(message.getRecalled())
             .recalledBy(message.getRecalledBy())
             .recalledAt(message.getRecalledAt())
+            .clientMsgId(message.getClientMsgId())
             .createdAt(message.getCreatedAt())
             .build();
     }

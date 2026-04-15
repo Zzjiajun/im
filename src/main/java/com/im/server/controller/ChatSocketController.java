@@ -31,6 +31,7 @@ public class ChatSocketController {
         request.setReplyMessageId(payload.getReplyMessageId());
         request.setMentionAll(payload.getMentionAll());
         request.setMentionUserIds(payload.getMentionUserIds());
+        request.setClientMsgId(payload.getClientMsgId());
         return messageService.sendMessage(Long.parseLong(principal.getName()), request);
     }
 

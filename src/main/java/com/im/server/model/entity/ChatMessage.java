@@ -26,5 +26,7 @@ public class ChatMessage {
     private Integer recalled;
     private Long recalledBy;
     private LocalDateTime recalledAt;
+    /** 客户端幂等键，可选 */
+    private String clientMsgId;
     private LocalDateTime createdAt;
 }

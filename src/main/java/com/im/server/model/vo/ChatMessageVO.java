@@ -33,5 +33,6 @@ public class ChatMessageVO {
     private Integer recalled;
     private Long recalledBy;
     private LocalDateTime recalledAt;
+    private String clientMsgId;
     private LocalDateTime createdAt;
 }
