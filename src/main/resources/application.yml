@@ -6,15 +6,14 @@ spring:
     name: im-server
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/im_server?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${SPRING_DATASOURCE_USERNAME:root}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+    url: jdbc:mysql://127.0.0.1:3306/im_server?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
   data:
     redis:
-      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
-      port: ${SPRING_DATA_REDIS_PORT:6379}
-      database: ${SPRING_DATA_REDIS_DATABASE:0}
-      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      host: 127.0.0.1
+      port: 6379
+      database: 0
       timeout: 5s
   servlet:
     multipart:
@@ -23,10 +22,10 @@ spring:
   jackson:
     default-property-inclusion: non_null
   mail:
-    host: ${MAIL_HOST:smtp.gmail.com}
-    port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:}
-    password: ${MAIL_PASSWORD:}
+    host: smtp.gmail.com
+    port: 587
+    username: 1848875071j@gmail.com
+    password: yjvb pfmv fcay fvjh
     default-encoding: UTF-8
     properties:
       mail:
@@ -58,8 +57,8 @@ springdoc:
 app:
   agora:
     enabled: ${AGORA_ENABLED:true}
-    app-id: ${AGORA_APP_ID:}
-    app-certificate: ${AGORA_APP_CERTIFICATE:}
+    app-id: 9b130e61e2104c9d86992681d4005a43
+    app-certificate: e99531508a244dcfb145f168255c879a
     rtc-token-expire-seconds: ${AGORA_RTC_TOKEN_EXPIRE_SECONDS:3600}
     session-ttl-seconds: ${AGORA_SESSION_TTL_SECONDS:7200}
     ring-timeout-seconds: ${AGORA_RING_TIMEOUT_SECONDS:45}
@@ -83,9 +82,9 @@ app:
     sms-webhook:
       enabled: false
   minio:
-    endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:9000}
-    access-key: ${MINIO_ACCESS_KEY:}
-    secret-key: ${MINIO_SECRET_KEY:}
+    endpoint: http://47.89.251.203:9000
+    access-key: 2Q73HLqewqURe0IAb7L8
+    secret-key: 3nnke3XxJJglzxUMtUu7U9Vb4DOTZgXIqb3LydnT
     bucket: ${MINIO_BUCKET:im-media}
   websocket:
     allowed-origins:
