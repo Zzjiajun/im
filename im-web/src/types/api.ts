@@ -148,6 +148,8 @@ export interface ChatMessageVO {
   deliveredCount?: number
   pinnedByMe?: boolean
   reactions?: MessageReactionSummaryVO[] | null
+  /** 客户端幂等键，重试时与请求一致 */
+  clientMsgId?: string | null
 }
 
 export interface MessageSearchPageVO {
@@ -159,6 +161,8 @@ export interface MessageSearchPageVO {
 export interface SendMessageRequest {
   conversationId: SnowflakeId
   type: string
+  /** 可选；网络重试时复用同一值可去重 */
+  clientMsgId?: string
   content?: string
   mediaUrl?: string
   mediaCoverUrl?: string
@@ -350,6 +354,35 @@ export interface GroupInviteCreatedVO {
   token: string
   expireAt?: string | null
   maxUses?: number | null
+}
+
+export interface StartVoiceCallRequest {
+  conversationId: SnowflakeId
+}
+
+export interface VoiceCallVO {
+  callId: string
+  conversationId: SnowflakeId
+  channelName: string
+  callerUserId: SnowflakeId
+  callerNickname?: string | null
+  callerAvatar?: string | null
+  calleeUserId: SnowflakeId
+  calleeNickname?: string | null
+  calleeAvatar?: string | null
+  status: string
+  reason?: string | null
+  createdAt?: string | null
+  answeredAt?: string | null
+  endedAt?: string | null
+}
+
+export interface AgoraRtcTokenVO {
+  appId: string
+  channelName: string
+  uid: string
+  token: string
+  expiresInSeconds: number
 }
 
 export interface JoinGroupInviteRequest {

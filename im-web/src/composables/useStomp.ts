@@ -3,7 +3,7 @@ import type { ChatMessageVO, SnowflakeId, WsEnvelope } from '@/types/api'
 
 let client: Client | null = null
 
-export type WsHandler = (env: WsEnvelope<unknown>) => void
+export type WsHandler = (env: WsEnvelope<unknown>) => void | Promise<void>
 
 export type StompLifecycle = {
   /** 每次连接成功（含断线自动重连后） */
@@ -63,7 +63,11 @@ export function connectStomp(
               /* keep string */
             }
           }
-          if (env?.event) onEvent(env)
+          if (env?.event) {
+            Promise.resolve(onEvent(env)).catch(() => {
+              /* ignore async handler errors to avoid unhandled promise rejection */
+            })
+          }
         } catch {
           /* ignore malformed */
         }

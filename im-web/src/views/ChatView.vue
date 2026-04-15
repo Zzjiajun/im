@@ -7,22 +7,19 @@ import { useChatStore } from '@/stores/chat'
 import { useContactsStore } from '@/stores/contacts'
 import { setLocale, type LocaleTag } from '@/i18n'
 import {
-  connectStomp,
   disconnectStomp,
-  isMessagePayload,
   stompTyping,
 } from '@/composables/useStomp'
 import { useVoiceRecorder } from '@/composables/useVoiceRecorder'
+import { useVoiceCallStore } from '@/stores/voiceCall'
+import { useRealtimeStore } from '@/stores/realtime'
 import type {
-  RecallWsPayload,
-  WsEnvelope,
   ChatMessageVO,
   GroupDetailVO,
   GroupMemberVO,
   SnowflakeId,
 } from '@/types/api'
 import { normalizeSnowflakeIds, sortSnowflakeIds } from '@/utils/ids'
-import { resolveWebSocketUrl } from '@/utils/wsUrl'
 import * as convApi from '@/api/conversation'
 import * as msgApi from '@/api/message'
 import * as uploadApi from '@/api/upload'
@@ -34,9 +31,8 @@ const route = useRoute()
 const auth = useAuthStore()
 const chat = useChatStore()
 const contacts = useContactsStore()
+const realtime = useRealtimeStore()
 
-const wsUrl = resolveWebSocketUrl()
-const wsState = ref<'none' | 'live' | 'offline'>('none')
 const voiceRecorder = useVoiceRecorder()
 const input = ref('')
 const listScroll = ref<HTMLElement | null>(null)
@@ -96,6 +92,33 @@ const receiptDelivers = ref<Awaited<ReturnType<typeof msgApi.listMessageDelivers
 const typingPeerId = ref<SnowflakeId | null>(null)
 let typingClearTimer: ReturnType<typeof setTimeout> | null = null
 let draftDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function onTypingEvent(event: Event) {
+  const detail = (event as CustomEvent<{ conversationId?: SnowflakeId; userId?: SnowflakeId; typing?: boolean }>).detail
+  if (!detail || !idEq(detail.conversationId, chat.activeId)) return
+  if (detail.userId === auth.user?.id) return
+  if (detail.typing) {
+    typingPeerId.value = detail.userId ?? null
+    if (typingClearTimer) clearTimeout(typingClearTimer)
+    typingClearTimer = setTimeout(() => {
+      typingPeerId.value = null
+    }, 4500)
+    return
+  }
+  typingPeerId.value = null
+}
+
+function onPinnedEvent(
+  event: Event
+) {
+  const detail = (event as CustomEvent<{ conversationId?: SnowflakeId }>).detail
+  if (!detail || !idEq(detail.conversationId, chat.activeId)) return
+  const activeId = chat.activeId
+  if (!activeId) return
+  void msgApi.listPinnedMessages(activeId).then((list) => {
+    pinnedMessages.value = list
+  })
+}
 
 const filteredMessages = computed(() => {
   const q = inConvSearch.value.trim().toLowerCase()
@@ -176,6 +199,8 @@ function msgAvatarUrl(m: ChatMessageVO): string | null {
   return resolveAvatarUrl(m.senderAvatar)
 }
 
+const voiceCall = useVoiceCallStore()
+
 function isSelf(m: ChatMessageVO) {
   return m.senderId === auth.user?.id
 }
@@ -216,77 +241,6 @@ watch(
   () => scrollBottom()
 )
 
-function handleWs(env: WsEnvelope<unknown>) {
-  if (env.event === 'MESSAGE' && isMessagePayload(env.data)) {
-    void chat.applyWsPayload(env.data)
-    return
-  }
-  if (env.event === 'RECALL' && env.data && typeof env.data === 'object') {
-    chat.applyWsRecall(env.data as RecallWsPayload)
-    return
-  }
-  if (env.event === 'EDIT' && isMessagePayload(env.data)) {
-    chat.applyWsEdit(env.data)
-    return
-  }
-  if (env.event === 'REACTION' && isMessagePayload(env.data)) {
-    chat.applyWsReaction(env.data)
-    return
-  }
-  if (env.event === 'DELIVERED' && env.data && typeof env.data === 'object') {
-    const d = env.data as { conversationId?: SnowflakeId; messageIds?: SnowflakeId[] }
-    chat.applyWsDelivered(d)
-    return
-  }
-  if (env.event === 'READ' && env.data && typeof env.data === 'object') {
-    const d = env.data as { conversationId?: SnowflakeId; messageIds?: SnowflakeId[] }
-    chat.applyWsRead(d)
-    return
-  }
-  if (env.event === 'TYPING' && env.data && typeof env.data === 'object') {
-    const d = env.data as { conversationId?: SnowflakeId; userId?: SnowflakeId; typing?: boolean }
-    if (!idEq(d.conversationId, chat.activeId)) return
-    if (d.userId === auth.user?.id) return
-    if (d.typing) {
-      typingPeerId.value = d.userId ?? null
-      if (typingClearTimer) clearTimeout(typingClearTimer)
-      typingClearTimer = setTimeout(() => {
-        typingPeerId.value = null
-      }, 4500)
-    } else {
-      typingPeerId.value = null
-    }
-    return
-  }
-  if (env.event === 'MESSAGE_PINNED' && isMessagePayload(env.data)) {
-    const vo = env.data
-    if (idEq(vo.conversationId, chat.activeId)) {
-      void msgApi.listPinnedMessages(vo.conversationId).then((list) => {
-        pinnedMessages.value = list
-      })
-    }
-  }
-}
-
-function bindWs(token: string | null) {
-  disconnectStomp()
-  if (!token || !wsUrl) {
-    wsState.value = 'none'
-    return
-  }
-  wsState.value = 'offline'
-  connectStomp(wsUrl, token, handleWs, {
-    onConnected: () => {
-      wsState.value = 'live'
-      const id = chat.activeId
-      if (id) void chat.syncNewerMessages(id)
-    },
-    onDisconnected: () => {
-      wsState.value = 'offline'
-    },
-  })
-}
-
 async function handleOpenConvQuery() {
   const raw = route.query.openConv
   const id =
@@ -304,13 +258,18 @@ async function handleOpenConvQuery() {
 }
 
 onMounted(async () => {
-  if (!auth.user) {
-    await auth.refreshProfile()
+  window.addEventListener('im-typing', onTypingEvent as EventListener)
+  window.addEventListener('im-pinned', onPinnedEvent as EventListener)
+  try {
+    if (!auth.user) {
+      await auth.refreshProfile()
+    }
+    chat.setSelfId(auth.user?.id ?? null)
+    await chat.loadConversations()
+    await handleOpenConvQuery()
+  } catch (e: unknown) {
+    showToast(e instanceof Error ? e.message : String(e))
   }
-  chat.setSelfId(auth.user?.id ?? null)
-  await chat.loadConversations()
-  bindWs(auth.token)
-  await handleOpenConvQuery()
   scrollBottom()
 })
 
@@ -345,13 +304,9 @@ watch(
   }
 )
 
-watch(
-  () => auth.token,
-  (tok) => bindWs(tok)
-)
-
 onUnmounted(() => {
-  // 不断开 STOMP：切到个人资料等页面时仍需接收推送；仅退出登录时 disconnect（见 logout）
+  window.removeEventListener('im-typing', onTypingEvent as EventListener)
+  window.removeEventListener('im-pinned', onPinnedEvent as EventListener)
   voiceRecorder.cancel()
   if (typingClearTimer) clearTimeout(typingClearTimer)
   if (draftDebounceTimer) clearTimeout(draftDebounceTimer)
@@ -560,8 +515,8 @@ async function openChatWithFriend(userId: SnowflakeId) {
     const vo = await convApi.createSingleConversation(userId)
     sidePanel.value = 'chats'
     chat.upsertConversation(vo)
-    await chat.loadConversations()
     await chat.selectConversation(vo.conversationId)
+    void chat.loadConversations()
     scrollBottom()
   } catch (e: unknown) {
     showToast(e instanceof Error ? e.message : String(e))
@@ -724,6 +679,17 @@ async function openGroupModal(options?: { preferManage?: boolean }) {
 
 function openGroupInvite() {
   void openGroupModal({ preferManage: true })
+}
+
+async function startVoiceCallFromCurrent() {
+  const c = chat.activeConversation
+  if (!c || c.type !== 'SINGLE') return
+  try {
+    await voiceCall.start(c.conversationId)
+    showToast(t('chat.callDialing'))
+  } catch (e: unknown) {
+    showToast(e instanceof Error ? e.message : String(e))
+  }
 }
 
 async function reloadGroupDetail() {
@@ -1118,12 +1084,12 @@ async function logout() {
         <span class="dot" />
         <span class="title">{{ t('app.title') }}</span>
         <span
-          v-if="wsUrl"
+          v-if="auth.isLoggedIn"
           class="ws-pill"
-          :class="{ 'ws-ok': wsState === 'live', 'ws-bad': wsState === 'offline' }"
-          :title="wsState === 'live' ? t('chat.wsLive') : t('chat.wsOffline')"
+          :class="{ 'ws-ok': realtime.status === 'live', 'ws-bad': realtime.status === 'offline' }"
+          :title="realtime.status === 'live' ? t('chat.wsLive') : t('chat.wsOffline')"
         >
-          {{ wsState === 'live' ? t('chat.wsLiveShort') : t('chat.wsOfflineShort') }}
+          {{ realtime.status === 'live' ? t('chat.wsLiveShort') : t('chat.wsOfflineShort') }}
         </span>
       </div>
       <div class="tools">
@@ -1201,7 +1167,7 @@ async function logout() {
               @click="pick(c.conversationId)"
             >
               <div class="avatar">
-                <img v-if="resolveAvatarUrl(c.displayAvatar)" :src="resolveAvatarUrl(c.displayAvatar)!" alt="" />
+                <img v-if="resolveAvatarUrl(c.displayAvatar)" :src="resolveAvatarUrl(c.displayAvatar)" alt="" />
                 <template v-else>{{ initial(c.displayName) }}</template>
               </div>
               <div class="meta">
@@ -1241,6 +1207,15 @@ async function logout() {
             />
             <button type="button" class="info-btn" :class="{ on: multiSelectMode }" @click="toggleMultiMode">
               {{ multiSelectMode ? t('chat.cancelMulti') : t('chat.multiSelect') }}
+            </button>
+            <button
+              v-if="chat.activeConversation.type === 'SINGLE'"
+              type="button"
+              class="info-btn"
+              :disabled="voiceCall.busy"
+              @click="startVoiceCallFromCurrent"
+            >
+              {{ t('chat.voiceCall') }}
             </button>
             <button
               v-if="chat.activeConversation.type === 'GROUP'"
@@ -1344,7 +1319,7 @@ async function logout() {
               @click="multiSelectMode ? toggleMsgSelect(m) : undefined"
             >
               <div class="avatar sm">
-                <img v-if="msgAvatarUrl(m)" :src="msgAvatarUrl(m)!" alt="" />
+                <img v-if="msgAvatarUrl(m)" :src="msgAvatarUrl(m)" alt="" />
                 <template v-else>{{ initial(m.senderNickname) }}</template>
               </div>
               <div class="bubble-wrap">
@@ -1439,6 +1414,15 @@ async function logout() {
               <button type="button" class="x-sm" @click="clearMentions">×</button>
             </div>
             <div class="tool-bar">
+              <button
+                v-if="chat.activeConversation.type === 'SINGLE'"
+                type="button"
+                class="tool"
+                :disabled="chat.sending || voiceCall.busy"
+                @click="startVoiceCallFromCurrent"
+              >
+                {{ t('chat.voiceCall') }}
+              </button>
               <button type="button" class="tool" :disabled="chat.sending" @click="triggerImage">
                 {{ t('chat.sendImage') }}
               </button>
@@ -2263,6 +2247,43 @@ async function logout() {
 .modal-body {
   padding: 14px 16px;
   overflow-y: auto;
+}
+.call-modal {
+  width: min(360px, calc(100vw - 28px));
+}
+.call-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+}
+.call-avatar {
+  width: 72px;
+  height: 72px;
+  font-size: 1.35rem;
+}
+.call-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.call-status {
+  font-size: 0.86rem;
+  color: var(--wx-sub);
+}
+.call-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 4px;
+}
+.btn-warn {
+  border-radius: 10px;
+  padding: 10px 16px;
+  background: #ffebe9;
+  color: #d93025;
+  border: 1px solid #f5b5ae;
 }
 .modal-name {
   font-size: 1.1rem;

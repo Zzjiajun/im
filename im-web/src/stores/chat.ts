@@ -261,7 +261,11 @@ export const useChatStore = defineStore('chat', () => {
     if (!activeId.value || sending.value) return null
     sending.value = true
     try {
-      const vo = await msgApi.sendMessage(body)
+      const payload: SendMessageRequest = {
+        ...body,
+        clientMsgId: body.clientMsgId ?? crypto.randomUUID(),
+      }
+      const vo = await msgApi.sendMessage(payload)
       appendOrReplace(vo)
       const aid = activeId.value
       if (aid) {
