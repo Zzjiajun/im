@@ -47,8 +47,7 @@ http.interceptors.response.use(
       cfg &&
       !cfg._imRetry &&
       (status === 401 || status === 403) &&
-      !isAuthPath(cfg.url) &&dasdaas
-      getToken()
+      !isAuthPath(cfg.url) &&getToken()
     ) {
       const rt = localStorage.getItem('im_refresh')
       if (rt) {
