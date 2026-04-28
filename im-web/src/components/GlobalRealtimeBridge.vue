@@ -24,7 +24,12 @@ const wsUrl = resolveWebSocketUrl()
 // 增强的WebSocket连接状态监控
 const connectionAttempts = ref(0)
 const maxConnectionAttempts = 5
-const wsDebugLog = ref(false)
+const wsDebugEnabled = ref(false)
+
+function wsDebugLog(next?: boolean) {
+  if (typeof next === 'boolean') wsDebugEnabled.value = next
+  return wsDebugEnabled.value
+}
 
 function idEq(a: SnowflakeId | null | undefined, b: SnowflakeId | null | undefined) {
   if (a == null || b == null) return false
@@ -32,7 +37,7 @@ function idEq(a: SnowflakeId | null | undefined, b: SnowflakeId | null | undefin
 }
 
 function logWs(level: 'info' | 'warn' | 'error', message: string) {
-  if (wsDebugLog.value) {
+  if (wsDebugEnabled.value) {
     console.log(`[WS ${level.toUpperCase()}]`, new Date().toLocaleTimeString(), message)
   }
 }
@@ -182,10 +187,10 @@ onUnmounted(() => {
 
 // 暴露调试开关给开发者
 if (import.meta.env.DEV) {
-  (window as any).wsDebugLog = wsDebugLog
-  (window as any).wsRealtimeStatus = () => realtime.status
-  (window as any).wsConnect = () => bindWs(auth.token)
-  (window as any).wsDisconnect = () => disconnectStomp()
+  ;(window as any).wsDebugLog = wsDebugLog;
+  (window as any).wsRealtimeStatus = () => realtime.status;
+  (window as any).wsConnect = () => bindWs(auth.token);
+  (window as any).wsDisconnect = () => disconnectStomp();
 }
 </script>
 
