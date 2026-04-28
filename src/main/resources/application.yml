@@ -91,8 +91,8 @@ app:
       - ${WEBSOCKET_ALLOWED_ORIGIN:*}
     relay:
       enabled: ${WS_STOMP_RELAY_ENABLED:false}
-      host: ${RABBITMQ_STOMP_HOST:127.0.0.1}
-      port: ${RABBITMQ_STOMP_PORT:61613}
+      host: ${RABBITMQ_STOMP_HOST:47.89.251.203}
+      port: ${RABBITMQ_STOMP_PORT:15672}
       client-login: ${RABBITMQ_STOMP_CLIENT_LOGIN:guest}
       client-passcode: ${RABBITMQ_STOMP_CLIENT_PASSCODE:guest}
       system-login: ${RABBITMQ_STOMP_SYSTEM_LOGIN:guest}

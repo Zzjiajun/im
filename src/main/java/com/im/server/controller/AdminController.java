@@ -7,18 +7,15 @@ import com.im.server.model.vo.AdminDashboardVO;
 import com.im.server.model.vo.AdminUserPageVO;
 import com.im.server.model.vo.MessageReportAdminVO;
 import com.im.server.model.vo.MessageSearchPageVO;
+import com.im.server.model.vo.NotificationVO;
 import com.im.server.security.LoginUser;
 import com.im.server.service.AdminManagementService;
 import com.im.server.service.AdminReportService;
 import com.im.server.service.MessageService;
+import com.im.server.service.NotificationService;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -28,6 +25,7 @@ public class AdminController {
     private final AdminReportService adminReportService;
     private final AdminManagementService adminManagementService;
     private final MessageService messageService;
+    private final NotificationService notificationService;
 
     private static void assertAdmin(LoginUser loginUser) {
         if (loginUser == null || !loginUser.isAdmin()) {
@@ -80,5 +78,41 @@ public class AdminController {
                                                            @RequestParam(defaultValue = "50") int limit) {
         assertAdmin(loginUser);
         return ApiResponse.success(adminReportService.listReports(limit));
+    }
+
+    /**
+     * 管理员查看所有通知（支持按用户筛选）
+     */
+    @GetMapping("/notifications")
+    public ApiResponse<List<NotificationVO>> adminNotifications(@CurrentUser LoginUser loginUser,
+                                                               @RequestParam(required = false) Long userId,
+                                                               @RequestParam(required = false) String type,
+                                                               @RequestParam(required = false) Boolean isRead,
+                                                               @RequestParam(defaultValue = "1") Integer page,
+                                                               @RequestParam(defaultValue = "50") Integer size) {
+        assertAdmin(loginUser);
+        return ApiResponse.success(notificationService.adminNotifications(userId, type, isRead, page, size));
+    }
+
+    /**
+     * 管理员删除通知
+     */
+    @DeleteMapping("/notifications/{notificationId}")
+    public ApiResponse<Void> adminDeleteNotification(@CurrentUser LoginUser loginUser,
+                                                      @PathVariable Long notificationId) {
+        assertAdmin(loginUser);
+        notificationService.adminDeleteNotification(notificationId);
+        return ApiResponse.success("通知已删除", null);
+    }
+
+    /**
+     * 管理员清空指定用户的所有通知
+     */
+    @DeleteMapping("/notifications/user/{userId}/clear")
+    public ApiResponse<Void> adminClearAllNotifications(@CurrentUser LoginUser loginUser,
+                                                        @PathVariable Long userId) {
+        assertAdmin(loginUser);
+        notificationService.adminClearAllNotifications(userId);
+        return ApiResponse.success("用户通知已清空", null);
     }
 }
