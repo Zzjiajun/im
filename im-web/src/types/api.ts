@@ -513,3 +513,30 @@ export interface MessageReportAdminVO {
   messagePreview?: string | null
   conversationId?: SnowflakeId | null
 }
+
+// 通知中心相关接口
+export interface NotificationVO {
+  id: number
+  type: string
+  title: string
+  content: string
+  data?: string | null
+  senderId?: SnowflakeId | null
+  senderNickname?: string | null
+  senderAvatar?: string | null
+  relatedId?: SnowflakeId | null
+  isRead: boolean
+  readAt?: string | null
+  createdAt?: string | null
+}
+
+export interface NotificationUnreadVO {
+  totalCount: number
+  unreadCount: number
+}
+
+export interface NotificationListRequest {
+  isRead?: boolean
+  page?: number
+  size?: number
+}

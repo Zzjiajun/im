@@ -24,6 +24,8 @@ import * as convApi from '@/api/conversation'
 import * as msgApi from '@/api/message'
 import * as uploadApi from '@/api/upload'
 import ContactsPanel from '@/components/ContactsPanel.vue'
+import NotificationBell from '@/components/NotificationBell.vue'
+import TypingIndicator from '@/components/TypingIndicator.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -1104,6 +1106,7 @@ async function logout() {
             <option value="en">{{ t('common.en') }}</option>
           </select>
         </label>
+        <NotificationBell />
         <span class="nick">{{ auth.user?.nickname }}</span>
         <button type="button" class="link" @click="logout">{{ t('auth.logout') }}</button>
       </div>
@@ -1194,11 +1197,16 @@ async function logout() {
       <main class="main">
         <template v-if="chat.activeConversation">
           <div class="chat-head">
-            <span class="chat-title">{{ chat.activeConversation.displayName }}</span>
-            <span v-if="chat.activeConversation.type === 'GROUP'" class="g-tag sm">{{
-              t('chat.groupBadge')
-            }}</span>
-            <span v-if="chat.activeConversation.muted" class="tag">{{ t('chat.muted') }}</span>
+            <div class="chat-header-content">
+              <div class="chat-title-section">
+                <span class="chat-title">{{ chat.activeConversation.displayName }}</span>
+                <span v-if="chat.activeConversation.type === 'GROUP'" class="g-tag sm">{{
+                  t('chat.groupBadge')
+                }}</span>
+                <span v-if="chat.activeConversation.muted" class="tag">{{ t('chat.muted') }}</span>
+              </div>
+              <TypingIndicator />
+            </div>
             <input
               v-model="inConvSearch"
               class="insearch"
@@ -2043,6 +2051,21 @@ async function logout() {
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--wx-border);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+.chat-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-title-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 .chat-title {
   font-weight: 600;
