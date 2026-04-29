@@ -26,7 +26,8 @@ function isAuthPath(url: string | undefined) {
     url.includes('/auth/refresh') ||
     url.includes('/auth/send-code') ||
     url.includes('/auth/reset-password') ||
-    url.includes('/auth/oauth/login')
+    url.includes('/auth/oauth/login') ||
+    url.includes('/auth/public-config')
   )
 }
 

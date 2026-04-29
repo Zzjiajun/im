@@ -17,6 +17,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -29,6 +33,18 @@ public class UserService {
     private final UserMapper userMapper;
     private final FriendRelationMapper friendRelationMapper;
     private final UserPushTokenMapper userPushTokenMapper;
+
+    /** 本地 Caffeine 缓存：用户基本信息，TTL 5 分钟 */
+    private Cache<Long, UserSimpleVO> simpleUserCache;
+
+    @PostConstruct
+    void initCache() {
+        this.simpleUserCache = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .recordStats()
+            .build();
+    }
 
     public List<UserSearchVO> search(Long currentUserId, String keyword) {
         if (StringUtils.isBlank(keyword)) {
@@ -60,11 +76,25 @@ public class UserService {
     }
 
     public UserSimpleVO getSimpleUser(Long userId) {
+        // 1. 查缓存
+        UserSimpleVO cached = simpleUserCache.getIfPresent(userId);
+        if (cached != null) {
+            return cached;
+        }
+        // 2. 查 DB
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException("用户不存在");
         }
-        return toSimpleUser(user);
+        UserSimpleVO vo = toSimpleUser(user);
+        // 3. 回填缓存（忽略 null）
+        simpleUserCache.put(userId, vo);
+        return vo;
+    }
+
+    /** 用户更新资料后失效缓存 */
+    public void evictSimpleUserCache(Long userId) {
+        simpleUserCache.invalidate(userId);
     }
 
     public List<UserSimpleVO> getSimpleUsers(List<Long> userIds) {
@@ -98,6 +128,13 @@ public class UserService {
         return user;
     }
 
+    /** 获取全部用户ID（用于系统公告广播） */
+    public List<Long> listAllUserIds() {
+        return userMapper.selectList(
+            new LambdaQueryWrapper<User>().select(User::getId)
+        ).stream().map(User::getId).toList();
+    }
+
     public User updateProfile(Long userId, UpdateProfileRequest request) {
         User user = userMapper.selectById(userId);
         if (user == null) {
@@ -122,6 +159,7 @@ public class UserService {
         }
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
+        evictSimpleUserCache(userId);
         user.setPassword(null);
         return user;
     }

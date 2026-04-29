@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 @TableName("unread_history")
 public class UnreadHistory {
 
-    @TableId(type = IdType.AUTO)
+    @TableId(type = IdType.ASSIGN_ID)
     private Long id;
 
     private Long userId;

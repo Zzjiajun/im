@@ -23,6 +23,12 @@ import { useAuthStore } from '@/stores/auth'
 import { stompTyping } from '@/composables/useStomp'
 import type { SnowflakeId } from '@/types/api'
 
+/** 统一为字符串比较，避免后端 Long → JSON number 与前端 SnowflakeId(string) 的类型不一致 */
+function idEq(a: SnowflakeId | null | undefined, b: SnowflakeId | null | undefined) {
+  if (a == null || b == null) return false
+  return String(a) === String(b)
+}
+
 const chat = useChatStore()
 const auth = useAuthStore()
 
@@ -67,19 +73,19 @@ function handleTypingEvent(event: Event) {
 
   const { conversationId, userId, typing } = customEvent.detail
 
-  // 只处理当前会话的输入事件
-  if (!conversationId || conversationId !== chat.activeId) {
+  // 只处理当前会话的输入事件（使用字符串比较避免 SnowflakeId 类型不一致）
+  if (!conversationId || !idEq(conversationId, chat.activeId)) {
     return
   }
 
-  // 忽略自己的输入状态
-  if (userId === auth.user?.id) {
+  // 忽略自己的输入状态（使用字符串比较避免 SnowflakeId 类型不一致）
+  if (auth.user?.id != null && idEq(userId, auth.user.id)) {
     return
   }
 
   if (typing) {
-    // 查找是否已经在列表中
-    const existingIndex = typingUsers.value.findIndex(t => t.userId === userId)
+    // 查找是否已经在列表中（使用字符串比较）
+    const existingIndex = typingUsers.value.findIndex(t => idEq(t.userId, userId))
 
     if (existingIndex >= 0) {
       // 更新时间戳
@@ -99,8 +105,11 @@ function handleTypingEvent(event: Event) {
       startCleanupTimer()
     }
   } else {
-    // 停止输入，移除该用户
-    typingUsers.value = typingUsers.value.filter(t => t.userId !== userId)
+    // 停止输入，移除该用户（使用字符串比较）
+    typingUsers.value = typingUsers.value.filter(t => !idEq(t.userId, userId))
+    if (typingUsers.value.length === 0) {
+      stopCleanupTimer()
+    }
   }
 }
 

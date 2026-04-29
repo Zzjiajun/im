@@ -38,24 +38,28 @@ export function clearAllNotifications() {
   return unwrap<void>(http.delete('/notifications/clear'))
 }
 
-// 管理员通知管理接口
+// 管理员通知管理接口（返回分页数据 { records, total }）
 export function adminFetchNotifications(
   opts?: NotificationListRequest & {
     userId?: SnowflakeId;
     type?: string;
   }
 ) {
-  return unwrap<NotificationVO[]>(
-    http.get('/admin/notifications', {
-      params: {
-        ...(opts?.userId ? { userId: opts.userId } : {}),
-        ...(opts?.type ? { type: opts.type } : {}),
-        ...(opts?.isRead != null ? { isRead: opts.isRead } : {}),
-        ...(opts?.page != null ? { page: opts.page } : {}),
-        ...(opts?.size != null ? { size: opts.size } : {}),
-      },
-    })
-  )
+  return http.get('/admin/notifications', {
+    params: {
+      ...(opts?.userId ? { userId: opts.userId } : {}),
+      ...(opts?.type ? { type: opts.type } : {}),
+      ...(opts?.isRead != null ? { isRead: opts.isRead } : {}),
+      ...(opts?.page != null ? { page: opts.page } : {}),
+      ...(opts?.size != null ? { size: opts.size } : {}),
+    },
+  }).then(res => {
+    const body = res.data as { code: number; message?: string; data: { records: NotificationVO[]; total: number } }
+    if (body && typeof body.code === 'number' && body.code !== 0) {
+      return Promise.reject(new Error(body.message || '请求失败'))
+    }
+    return body.data
+  })
 }
 
 export function adminDeleteNotification(notificationId: number) {

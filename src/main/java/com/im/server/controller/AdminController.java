@@ -14,6 +14,7 @@ import com.im.server.service.AdminReportService;
 import com.im.server.service.MessageService;
 import com.im.server.service.NotificationService;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -74,17 +75,31 @@ public class AdminController {
     }
 
     @GetMapping("/reports")
-    public ApiResponse<List<MessageReportAdminVO>> reports(@CurrentUser LoginUser loginUser,
-                                                           @RequestParam(defaultValue = "50") int limit) {
+    public ApiResponse<Map<String, Object>> reports(@CurrentUser LoginUser loginUser,
+                                                    @RequestParam(defaultValue = "1") int page,
+                                                    @RequestParam(defaultValue = "20") int size) {
         assertAdmin(loginUser);
-        return ApiResponse.success(adminReportService.listReports(limit));
+        return ApiResponse.success(adminReportService.listReports(page, size));
     }
 
     /**
-     * 管理员查看所有通知（支持按用户筛选）
+     * 管理员发布系统公告（发送通知给指定用户或全部用户）
+     */
+    @PostMapping("/notifications/announcement")
+    public ApiResponse<Void> createAnnouncement(@CurrentUser LoginUser loginUser,
+                                                @RequestParam String title,
+                                                @RequestParam String content,
+                                                @RequestParam(required = false) List<Long> targetUserIds) {
+        assertAdmin(loginUser);
+        notificationService.createSystemAnnouncement(title, content, targetUserIds, loginUser.getUserId());
+        return ApiResponse.success("公告已发送", null);
+    }
+
+    /**
+     * 管理员查看所有通知（支持按用户筛选、分页）
      */
     @GetMapping("/notifications")
-    public ApiResponse<List<NotificationVO>> adminNotifications(@CurrentUser LoginUser loginUser,
+    public ApiResponse<Map<String, Object>> adminNotifications(@CurrentUser LoginUser loginUser,
                                                                @RequestParam(required = false) Long userId,
                                                                @RequestParam(required = false) String type,
                                                                @RequestParam(required = false) Boolean isRead,

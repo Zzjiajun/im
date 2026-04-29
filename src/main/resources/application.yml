@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: im-server
+  autoconfigure:
+    exclude:
+  elasticsearch:
+    # ES 服务地址：设置此值则启用 ES，留空则不启用（降级为 MySQL LIKE 搜索）
+    uris: ${ES_URIS:http://47.84.185.140:9200}
+    # 连接超时（Duration 格式）
+    connection-timeout: ${ES_CONNECT_TIMEOUT:10s}
+    # 读取超时（Duration 格式）
+    socket-timeout: ${ES_SOCKET_TIMEOUT:30s}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/im_server?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
@@ -54,7 +63,30 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      show-components: when-authorized
+    prometheus:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
 app:
+  elasticsearch:
+    # ES 索引名（与 init-es.sh 中的 INDEX_NAME 保持一致）
+    index: ${ES_INDEX:im_messages_v1}
   agora:
     enabled: ${AGORA_ENABLED:true}
     app-id: 9b130e61e2104c9d86992681d4005a43

@@ -17,6 +17,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final WebSocketAuthChannelInterceptor webSocketAuthChannelInterceptor;
     private final WebSocketStompRateLimitChannelInterceptor webSocketStompRateLimitChannelInterceptor;
+    private final WebSocketHeartbeatInterceptor webSocketHeartbeatInterceptor;
     private final WebSocketProperties webSocketProperties;
 
     @Override
@@ -46,8 +47,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(
-            webSocketAuthChannelInterceptor,
-            webSocketStompRateLimitChannelInterceptor
+            webSocketAuthChannelInterceptor,    // JWT 认证（必须第一）
+            webSocketHeartbeatInterceptor,      // 心跳追踪（第二）
+            webSocketStompRateLimitChannelInterceptor  // STOMP 限流（最后）
         );
     }
 }

@@ -15,6 +15,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.server.model.dto.DeleteMessagesForSelfRequest;
+import com.im.server.service.MessagePushEvent;
+import com.im.server.service.MessageSearchIndexService;
+import com.im.server.model.es.MessageDocument;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.elasticsearch.client.elc.ElasticsearchTemplate;
+import org.springframework.data.elasticsearch.client.elc.NativeQuery;
+import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import com.im.server.model.dto.BatchFavoriteRequest;
 import com.im.server.model.dto.BatchForwardMessagesRequest;
 import com.im.server.model.dto.MergeForwardMessagesRequest;
@@ -51,19 +61,26 @@ import com.im.server.model.vo.WsEvent;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MessageService {
@@ -83,8 +100,18 @@ public class MessageService {
     private final UserService userService;
     private final BlacklistService blacklistService;
     private final OfflinePushService offlinePushService;
+    private final NotificationService notificationService;
+    private final MessagePushService messagePushService;
     private final ObjectMapper objectMapper;
     private final MinioMediaUrlService minioMediaUrlService;
+    private final ApplicationEventPublisher eventPublisher;
+
+    // ES 索引服务：仅在 app.elasticsearch.enabled=true 时注入
+    @Autowired(required = false)
+    private MessageSearchIndexService messageSearchIndexService;
+
+    @Autowired(required = false)
+    private ElasticsearchTemplate elasticsearchTemplate;
 
     @Transactional
     public ChatMessageVO sendMessage(Long userId, SendMessageRequest request) {
@@ -149,15 +176,16 @@ public class MessageService {
         conversationService.touchConversation(message.getConversationId(), message.getId(), buildPreview(message));
         ChatMessageVO messageVO = buildMessageVO(message, userId);
 
+        Conversation conversation = conversationService.getById(message.getConversationId());
+        boolean isGroup = ConversationType.GROUP.name().equals(conversation.getType());
         List<Long> memberIds = conversationService.listMemberIds(message.getConversationId());
-        for (Long memberId : memberIds) {
-            if (!memberId.equals(userId)) {
-                unreadCacheService.incrementUnread(memberId, message.getConversationId());
-                wsPushService.pushToUser(memberId, new WsEvent<>("MESSAGE", messageVO));
-                offlinePushService.notifyNewChatMessage(memberId, messageVO);
-            }
-        }
-        pushMentionEvents(userId, message, messageVO);
+
+        // 事务提交后异步推送（WS + 离线 + @提及），避免大事务
+        List<Long> mentionTargetIds = extractMentionTargetIds(message, conversation, userId);
+        eventPublisher.publishEvent(new MessagePushEvent(
+            userId, messageVO, memberIds, isGroup, mentionTargetIds, message.getConversationId()
+        ));
+
         return messageVO;
     }
 
@@ -198,7 +226,8 @@ public class MessageService {
     }
 
     /**
-     * 用户侧消息搜索：支持空格分词 AND、游标分页（beforeMessageId 取更早一页）、size 默认 30、最大 100。
+     * 用户侧消息搜索：ES 优先，降级 MySQL LIKE。
+     * 支持空格分词 AND、游标分页（beforeMessageId 取更早一页）、size 默认 30、最大 100。
      */
     public MessageSearchPageVO searchMessages(Long userId, String keyword, Long conversationId,
                                               Long beforeMessageId, Integer size) {
@@ -211,6 +240,129 @@ public class MessageService {
                 .build();
         }
 
+        // ES 搜索（仅当 ES 启用时）
+        if (elasticsearchTemplate != null) {
+            return searchMessagesViaES(userId, keyword, conversationId, beforeMessageId, pageSize);
+        }
+
+        // 降级：MySQL LIKE 搜索
+        return searchMessagesViaDB(userId, keyword, conversationId, beforeMessageId, pageSize);
+    }
+
+    /**
+     * ES 全文搜索实现。
+     */
+    private MessageSearchPageVO searchMessagesViaES(Long userId, String keyword, Long conversationId,
+                                                     Long beforeMessageId, int pageSize) {
+        try {
+            // 获取用户可见的会话列表
+            List<Long> visibleConversationIds;
+            if (conversationId != null) {
+                conversationService.assertUserInConversation(userId, conversationId);
+                visibleConversationIds = List.of(conversationId);
+            } else {
+                visibleConversationIds = conversationService.listByUserId(userId).stream()
+                    .map(Conversation::getId).toList();
+                if (visibleConversationIds.isEmpty()) {
+                    return MessageSearchPageVO.builder()
+                        .items(List.of())
+                        .hasMore(false)
+                        .nextBeforeMessageId(null)
+                        .build();
+                }
+            }
+
+            // 获取用户已删除消息 ID
+            Set<Long> deletedMessageIds = new HashSet<>(messageDeletedUserMapper.selectList(
+                new LambdaQueryWrapper<MessageDeletedUser>()
+                    .eq(MessageDeletedUser::getUserId, userId)
+            ).stream().map(MessageDeletedUser::getMessageId).toList());
+
+            // 分词：空格分隔，每个词都必须匹配（AND 语义）
+            List<String> terms = java.util.Arrays.stream(keyword.split("\\s+"))
+                .filter(StringUtils::isNotBlank)
+                .toList();
+
+            // 构建 ES 查询
+            var boolQuery = new co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder();
+
+            // content 字段：每个词都必须匹配（match + AND 操作符，不要求顺序连续）
+            for (String term : terms) {
+                boolQuery.must(m -> m.match(mp -> mp.field("content").query(term).operator(co.elastic.clients.elasticsearch._types.query_dsl.Operator.And)));
+            }
+
+            // 过滤：未撤回
+            boolQuery.filter(f -> f.term(t -> t.field("recalled").value(0)));
+
+            // 过滤：会话可见性
+            var fieldValues = visibleConversationIds.stream()
+                .map(id -> co.elastic.clients.elasticsearch._types.FieldValue.of(id))
+                .toList();
+            boolQuery.filter(f -> f.terms(t -> t.field("conversationId")
+                .terms(tt -> tt.value(fieldValues))));
+
+            // 游标分页：只查询比 beforeMessageId 更早的消息
+            if (beforeMessageId != null) {
+                boolQuery.filter(f -> f.range(r -> r.field("id").lt(co.elastic.clients.json.JsonData.of(beforeMessageId))));
+            }
+
+            var query = NativeQuery.builder()
+                .withQuery(q -> q.bool(boolQuery.build()))
+                .withSort(s -> s.field(f -> f.field("id").order(co.elastic.clients.elasticsearch._types.SortOrder.Desc)))
+                .withPageable(org.springframework.data.domain.PageRequest.of(0, pageSize + 1))
+                .build();
+
+            var searchHits = elasticsearchTemplate.search(query, MessageDocument.class);
+
+            // 批量从 DB 加载消息（替代逐条 selectById，避免 N+1）
+            List<Long> docIds = searchHits.stream()
+                .map(hit -> hit.getContent().getId())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+            Map<Long, ChatMessage> msgMap = docIds.isEmpty() ? Collections.emptyMap()
+                : chatMessageMapper.selectBatchIds(docIds).stream()
+                    .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+
+            List<ChatMessageVO> visible = new ArrayList<>();
+            for (SearchHit<MessageDocument> hit : searchHits) {
+                MessageDocument doc = hit.getContent();
+                if (doc.getId() == null) {
+                    continue;
+                }
+                if (deletedMessageIds.contains(doc.getId())) {
+                    continue;
+                }
+                var member = conversationService.getRequiredMemberView(doc.getConversationId(), userId);
+                if (member.getClearMessageId() != null && doc.getId() <= member.getClearMessageId()) {
+                    continue;
+                }
+                ChatMessage msg = msgMap.get(doc.getId());
+                if (msg != null) {
+                    visible.add(buildMessageVO(msg, userId));
+                }
+            }
+
+            boolean hasMore = visible.size() > pageSize;
+            if (hasMore) {
+                visible = new ArrayList<>(visible.subList(0, pageSize));
+            }
+            Long nextBefore = hasMore && !visible.isEmpty() ? visible.get(visible.size() - 1).getId() : null;
+            return MessageSearchPageVO.builder()
+                .items(visible)
+                .hasMore(hasMore)
+                .nextBeforeMessageId(nextBefore)
+                .build();
+        } catch (Exception e) {
+            log.warn("[ES] 搜索异常，降级为 LIKE 搜索: {}", e.getMessage());
+            return searchMessagesViaDB(userId, keyword, conversationId, beforeMessageId, pageSize);
+        }
+    }
+
+    /**
+     * MySQL LIKE 搜索（降级方案）。
+     */
+    private MessageSearchPageVO searchMessagesViaDB(Long userId, String keyword, Long conversationId,
+                                                     Long beforeMessageId, int pageSize) {
         LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<>();
         for (String raw : keyword.split("\\s+")) {
             String part = StringUtils.trimToEmpty(raw);
@@ -280,6 +432,81 @@ public class MessageService {
                 .nextBeforeMessageId(null)
                 .build();
         }
+
+        // ES 搜索（仅当 ES 启用时）
+        if (elasticsearchTemplate != null) {
+            return adminSearchMessagesViaES(keyword, conversationId, beforeMessageId, pageSize);
+        }
+
+        // 降级：MySQL LIKE
+        return adminSearchMessagesViaDB(keyword, conversationId, beforeMessageId, pageSize);
+    }
+
+    /**
+     * 管理员 ES 全库搜索。
+     */
+    private MessageSearchPageVO adminSearchMessagesViaES(String keyword, Long conversationId,
+                                                          Long beforeMessageId, int pageSize) {
+        try {
+            List<String> terms = java.util.Arrays.stream(keyword.split("\\s+"))
+                .filter(StringUtils::isNotBlank)
+                .toList();
+
+            var boolQuery = new co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder();
+            for (String term : terms) {
+                boolQuery.must(m -> m.matchPhrase(mp -> mp.field("content").query(term)));
+            }
+            // 管理员搜索不过滤已撤回（在结果中排除以便审计），但 ES 中过滤掉已撤回的以保持一致性
+            if (conversationId != null) {
+                boolQuery.filter(f -> f.term(t -> t.field("conversationId").value(conversationId)));
+            }
+            if (beforeMessageId != null) {
+                boolQuery.filter(f -> f.range(r -> r.field("id").lt(co.elastic.clients.json.JsonData.of(beforeMessageId))));
+            }
+
+            var query = NativeQuery.builder()
+                .withQuery(q -> q.bool(boolQuery.build()))
+                .withSort(s -> s.field(f -> f.field("id").order(co.elastic.clients.elasticsearch._types.SortOrder.Desc)))
+                .withPageable(org.springframework.data.domain.PageRequest.of(0, pageSize + 1))
+                .build();
+
+            var searchHits = elasticsearchTemplate.search(query, MessageDocument.class);
+            List<ChatMessageVO> items = new ArrayList<>();
+            for (SearchHit<MessageDocument> hit : searchHits) {
+                MessageDocument doc = hit.getContent();
+                if (doc.getId() == null) {
+                    continue;
+                }
+                // 管理员审计：跳过已撤回消息
+                if (Integer.valueOf(1).equals(doc.getRecalled())) {
+                    continue;
+                }
+                ChatMessage msg = chatMessageMapper.selectById(doc.getId());
+                if (msg != null) {
+                    items.add(buildMessageVO(msg, msg.getSenderId()));
+                }
+            }
+            boolean hasMore = items.size() > pageSize;
+            if (hasMore) {
+                items = new ArrayList<>(items.subList(0, pageSize));
+            }
+            Long nextBefore = hasMore && !items.isEmpty() ? items.get(items.size() - 1).getId() : null;
+            return MessageSearchPageVO.builder()
+                .items(items)
+                .hasMore(hasMore)
+                .nextBeforeMessageId(nextBefore)
+                .build();
+        } catch (Exception e) {
+            log.warn("[ES] 管理员搜索异常，降级为 LIKE 搜索: {}", e.getMessage());
+            return adminSearchMessagesViaDB(keyword, conversationId, beforeMessageId, pageSize);
+        }
+    }
+
+    /**
+     * 管理员 MySQL LIKE 搜索（降级）。
+     */
+    private MessageSearchPageVO adminSearchMessagesViaDB(String keyword, Long conversationId,
+                                                          Long beforeMessageId, int pageSize) {
         LambdaQueryWrapper<ChatMessage> wrapper = new LambdaQueryWrapper<>();
         for (String raw : keyword.split("\\s+")) {
             String part = StringUtils.trimToEmpty(raw);
@@ -377,8 +604,8 @@ public class MessageService {
         chatMessageMapper.updateById(message);
     }
 
-    @Transactional
     public void batchFavoriteMessages(Long userId, BatchFavoriteRequest request) {
+        // 非事务：逐条处理时 BusinessException 被 catch，事务注解无效，故移除
         for (Long messageId : request.getMessageIds()) {
             FavoriteMessageRequest favoriteRequest = new FavoriteMessageRequest();
             favoriteRequest.setMessageId(messageId);
@@ -534,6 +761,19 @@ public class MessageService {
         message.setMentionUserIds(joinMentionUserIds(request.getMentionUserIds()));
         chatMessageMapper.updateById(message);
 
+        // ES 更新内容（事务提交后执行，保证一致性）
+        Long finalMsgId = message.getId();
+        String finalContent = message.getContent();
+        java.time.LocalDateTime finalEditedAt = message.getEditedAt();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (messageSearchIndexService != null) {
+                    messageSearchIndexService.updateContent(finalMsgId, finalContent, finalEditedAt);
+                }
+            }
+        });
+
         if (message.getId().equals(conversation.getLastMessageId())) {
             conversationService.touchConversation(conversation.getId(), message.getId(), buildPreview(message));
         }
@@ -616,24 +856,36 @@ public class MessageService {
 
     @Transactional
     public void deleteMessagesForSelf(Long userId, DeleteMessagesForSelfRequest request) {
+        if (request.getMessageIds().isEmpty()) {
+            return;
+        }
+        // 批量查询所有消息（替代逐条 selectById）
+        List<ChatMessage> messages = chatMessageMapper.selectBatchIds(request.getMessageIds());
+        Map<Long, ChatMessage> msgMap = messages.stream()
+            .collect(Collectors.toMap(ChatMessage::getId, Function.identity()));
+
+        // 批量查询已存在的删除记录
+        Set<Long> alreadyDeleted = messageDeletedUserMapper.selectList(
+            new LambdaQueryWrapper<MessageDeletedUser>()
+                .eq(MessageDeletedUser::getUserId, userId)
+                .in(MessageDeletedUser::getMessageId, request.getMessageIds())
+        ).stream().map(MessageDeletedUser::getMessageId).collect(Collectors.toSet());
+
         for (Long messageId : request.getMessageIds()) {
-            ChatMessage message = chatMessageMapper.selectById(messageId);
+            ChatMessage message = msgMap.get(messageId);
             if (message == null) {
                 continue;
             }
             conversationService.assertUserInConversation(userId, message.getConversationId());
-            long count = messageDeletedUserMapper.selectCount(
-                new LambdaQueryWrapper<MessageDeletedUser>()
-                    .eq(MessageDeletedUser::getUserId, userId)
-                    .eq(MessageDeletedUser::getMessageId, messageId)
-            );
-            if (count == 0) {
+            if (!alreadyDeleted.contains(messageId)) {
                 MessageDeletedUser deletedUser = new MessageDeletedUser();
                 deletedUser.setUserId(userId);
                 deletedUser.setMessageId(messageId);
                 deletedUser.setDeletedAt(LocalDateTime.now());
                 messageDeletedUserMapper.insert(deletedUser);
             }
+            // 注意：此处不做 ES 删除。因为这是软删除（仅对当前用户隐藏），
+            // 其他用户仍可搜索到该消息。ES 搜索时已通过 message_deleted_user 表过滤。
         }
     }
 
@@ -835,16 +1087,25 @@ public class MessageService {
         }
 
         conversationService.markRead(userId, request.getConversationId());
+
+        // 事务提交后异步推送 READ 事件（避免事务中大量 WS 推送）
         if (!readMessageIds.isEmpty()) {
-            for (Long memberId : conversationService.listMemberIds(request.getConversationId())) {
-                if (!memberId.equals(userId)) {
-                    wsPushService.pushToUser(memberId, new WsEvent<>("READ", Map.of(
-                        "conversationId", request.getConversationId(),
-                        "readerId", userId,
-                        "messageIds", readMessageIds
-                    )));
+            Long conversationId = request.getConversationId();
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    List<Long> memberIds = conversationService.listMemberIds(conversationId);
+                    for (Long memberId : memberIds) {
+                        if (!memberId.equals(userId)) {
+                            wsPushService.pushToUser(memberId, new WsEvent<>("READ", Map.of(
+                                "conversationId", conversationId,
+                                "readerId", userId,
+                                "messageIds", readMessageIds
+                            )));
+                        }
+                    }
                 }
-            }
+            });
         }
     }
 
@@ -872,6 +1133,19 @@ public class MessageService {
         message.setMediaUrl(null);
         message.setMediaCoverUrl(null);
         chatMessageMapper.updateById(message);
+
+        // ES 标记撤回（事务提交后执行）
+        Long recalledMsgId = message.getId();
+        Long recalledByUserId = userId;
+        java.time.LocalDateTime recalledAtTime = message.getRecalledAt();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                if (messageSearchIndexService != null) {
+                    messageSearchIndexService.markRecalled(recalledMsgId, recalledByUserId, recalledAtTime);
+                }
+            }
+        });
 
         if (message.getId().equals(conversation.getLastMessageId())) {
             conversationService.touchConversation(conversation.getId(), message.getId(), "[消息已撤回]");
@@ -971,6 +1245,59 @@ public class MessageService {
         blacklistService.assertNoBlockBetween(userId, otherUser.getUserId());
     }
 
+    /**
+     * 事务提交后监听消息推送事件：
+     * 1. 异步执行 WS/离线/@提及 推送
+     * 2. ES 索引（保证 ES 与 MySQL 最终一致：事务已提交，消息一定在 DB 中）
+     */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onMessageCommitted(MessagePushEvent event) {
+        messagePushService.asyncPushToMembers(
+            event.getSenderId(),
+            event.getMessageVO(),
+            event.getMemberIds(),
+            event.isGroup(),
+            event.getMentionTargetIds(),
+            event.isMentionAll()
+        );
+
+        // ES 索引：从事务已提交的 DB 中读取最新消息，保证最终一致
+        if (messageSearchIndexService != null) {
+            try {
+                ChatMessage msg = chatMessageMapper.selectById(event.getMessageVO().getId());
+                if (msg != null) {
+                    messageSearchIndexService.indexMessage(msg, event.getMessageVO().getSenderNickname());
+                }
+            } catch (Exception e) {
+                log.warn("[ES] 索引失败 conversationId={} msgId={} error={}",
+                    event.getConversationId(), event.getMessageVO().getId(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 从事务内提取 @提及目标用户ID列表。
+     * 返回 List，若为全员提及则包含 -1L 标记。
+     */
+    private List<Long> extractMentionTargetIds(ChatMessage message, Conversation conversation, Long senderId) {
+        if (!ConversationType.GROUP.name().equals(conversation.getType())) {
+            return List.of();
+        }
+        if (Integer.valueOf(1).equals(message.getMentionAll())) {
+            // 用 -1L 标记全员提及
+            return List.of(-1L);
+        }
+        String raw = message.getMentionUserIds();
+        if (StringUtils.isBlank(raw)) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(raw.split(","))
+            .filter(StringUtils::isNotBlank)
+            .map(Long::parseLong)
+            .filter(id -> !id.equals(senderId))
+            .toList();
+    }
+
     private void pushMentionEvents(Long senderId, ChatMessage message, ChatMessageVO messageVO) {
         Conversation conversation = conversationService.getById(message.getConversationId());
         if (!ConversationType.GROUP.name().equals(conversation.getType())) {
@@ -991,6 +1318,11 @@ public class MessageService {
                 continue;
             }
             wsPushService.pushToUser(targetId, new WsEvent<>("MENTION", messageVO));
+            // 同时创建应用内通知
+            notificationService.notifyMention(
+                targetId, senderId, message.getContent(),
+                message.getConversationId(), message.getId()
+            );
         }
     }
 

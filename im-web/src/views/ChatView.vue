@@ -17,6 +17,7 @@ import type {
   ChatMessageVO,
   GroupDetailVO,
   GroupMemberVO,
+  MessageReceiptVO,
   SnowflakeId,
 } from '@/types/api'
 import { normalizeSnowflakeIds, sortSnowflakeIds } from '@/utils/ids'
@@ -88,27 +89,10 @@ const batchForwardOpen = ref(false)
 
 const receiptModal = ref(false)
 const receiptMsg = ref<ChatMessageVO | null>(null)
-const receiptReads = ref<Awaited<ReturnType<typeof msgApi.listMessageReads>>>([])
-const receiptDelivers = ref<Awaited<ReturnType<typeof msgApi.listMessageDelivers>>>([])
+const receiptReads = ref<MessageReceiptVO[]>([])
+const receiptDelivers = ref<MessageReceiptVO[]>([])
 
-const typingPeerId = ref<SnowflakeId | null>(null)
-let typingClearTimer: ReturnType<typeof setTimeout> | null = null
 let draftDebounceTimer: ReturnType<typeof setTimeout> | null = null
-
-function onTypingEvent(event: Event) {
-  const detail = (event as CustomEvent<{ conversationId?: SnowflakeId; userId?: SnowflakeId; typing?: boolean }>).detail
-  if (!detail || !idEq(detail.conversationId, chat.activeId)) return
-  if (detail.userId === auth.user?.id) return
-  if (detail.typing) {
-    typingPeerId.value = detail.userId ?? null
-    if (typingClearTimer) clearTimeout(typingClearTimer)
-    typingClearTimer = setTimeout(() => {
-      typingPeerId.value = null
-    }, 4500)
-    return
-  }
-  typingPeerId.value = null
-}
 
 function onPinnedEvent(
   event: Event
@@ -260,7 +244,6 @@ async function handleOpenConvQuery() {
 }
 
 onMounted(async () => {
-  window.addEventListener('im-typing', onTypingEvent as EventListener)
   window.addEventListener('im-pinned', onPinnedEvent as EventListener)
   try {
     if (!auth.user) {
@@ -307,10 +290,8 @@ watch(
 )
 
 onUnmounted(() => {
-  window.removeEventListener('im-typing', onTypingEvent as EventListener)
   window.removeEventListener('im-pinned', onPinnedEvent as EventListener)
   voiceRecorder.cancel()
-  if (typingClearTimer) clearTimeout(typingClearTimer)
   if (draftDebounceTimer) clearTimeout(draftDebounceTimer)
 })
 
@@ -421,8 +402,8 @@ async function openReceipts(m: ChatMessageVO) {
       msgApi.listMessageReads(m.id),
       msgApi.listMessageDelivers(m.id),
     ])
-    receiptReads.value = r
-    receiptDelivers.value = d
+    receiptReads.value = r ?? []
+    receiptDelivers.value = d ?? []
   } catch (e: unknown) {
     showToast(e instanceof Error ? e.message : String(e))
   }
@@ -1287,7 +1268,6 @@ async function logout() {
               </div>
             </div>
           </div>
-          <div v-if="typingPeerId" class="typing-bar">{{ t('chat.typing') }}</div>
           <div v-if="pinnedMessages.length" class="pin-strip">
             <span class="pin-strip-t">{{ t('chat.pinnedBar') }}</span>
             <button

@@ -110,7 +110,7 @@ function onPageChange(p: number) {
           >
             封禁
           </el-button>
-          <el-button v-if="row.status !== 1" type="primary" link @click="unban(row.id)">
+          <el-button v-if="row.status != null && row.status !== 1" type="primary" link @click="unban(row.id)">
             解封
           </el-button>
         </template>

@@ -8,7 +8,7 @@ const route = useRoute();
 
 function logout() {
   auth.logout();
-  router.push({ name: "login" });
+  router.replace({ name: "login" });
 }
 </script>
 

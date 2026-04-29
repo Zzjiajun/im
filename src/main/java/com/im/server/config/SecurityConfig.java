@@ -48,7 +48,11 @@ public class SecurityConfig {
                     "/swagger-ui.html",
                     "/swagger-ui/**",
                     "/v3/api-docs/**",
-                    "/ws-chat/**"
+                    "/ws-chat/**",
+                    "/actuator/health",
+                    "/actuator/info",
+                    "/actuator/prometheus",
+                    "/actuator/metrics"
                 ).permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
@@ -66,7 +70,18 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        // 使用 setAllowedOriginPatterns 而非 setAllowedOrigins，配合 allowCredentials=true
+        String allowedOrigins = System.getenv("CORS_ALLOWED_ORIGINS");
+        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+            configuration.setAllowedOriginPatterns(List.of(allowedOrigins.split(",")));
+        } else {
+            // 默认允许开发环境常见地址；生产环境务必通过 CORS_ALLOWED_ORIGINS 环境变量设置
+            configuration.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://*.example.com"
+            ));
+        }
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

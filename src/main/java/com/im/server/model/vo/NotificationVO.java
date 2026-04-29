@@ -18,6 +18,7 @@ public class NotificationVO {
     private String senderNickname;
     private String senderAvatar;
     private Long relatedId;
+    private Long createdBy;
     private Boolean isRead;
     private LocalDateTime readAt;
     private LocalDateTime createdAt;

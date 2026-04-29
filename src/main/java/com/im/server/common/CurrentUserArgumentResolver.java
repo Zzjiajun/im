@@ -25,7 +25,8 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
                                   WebDataBinderFactory binderFactory) {
         Authentication authentication =
             (Authentication) webRequest.getUserPrincipal();
-        if (authentication == null) {
+        if (authentication == null || !authentication.isAuthenticated()
+            || !(authentication.getPrincipal() instanceof LoginUser)) {
             return null;
         }
         return authentication.getPrincipal();

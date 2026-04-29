@@ -42,6 +42,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ApiResponse<Void> handleException(Exception exception) {
         log.error("Unhandled exception", exception);
-        return ApiResponse.fail(exception.getMessage());
+        // 不泄露内部异常细节给客户端（如 SQL 错误、连接失败等）
+        return ApiResponse.fail("服务器内部错误，请稍后重试");
     }
 }

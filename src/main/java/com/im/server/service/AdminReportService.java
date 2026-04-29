@@ -8,6 +8,7 @@ import com.im.server.model.entity.MessageReport;
 import com.im.server.model.vo.MessageReportAdminVO;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
@@ -20,12 +21,20 @@ public class AdminReportService {
     private final ChatMessageMapper chatMessageMapper;
     private final UserService userService;
 
-    public List<MessageReportAdminVO> listReports(int limit) {
-        int size = Math.min(Math.max(limit, 1), 200);
+    /** 举报列表（分页） */
+    public Map<String, Object> listReports(int page, int size) {
+        int pageSize = Math.min(Math.max(size, 1), 100);
+        int pageNo = Math.max(page, 1);
+        int offset = (pageNo - 1) * pageSize;
+
+        // 总条数
+        long total = messageReportMapper.selectCount(null);
+
+        // 当前页
         List<MessageReport> reports = messageReportMapper.selectList(
             new LambdaQueryWrapper<MessageReport>()
                 .orderByDesc(MessageReport::getCreatedAt)
-                .last("limit " + size)
+                .last("limit " + pageSize + " offset " + offset)
         );
         List<MessageReportAdminVO> result = new ArrayList<>();
         for (MessageReport r : reports) {
@@ -44,6 +53,6 @@ public class AdminReportService {
                 .conversationId(convId)
                 .build());
         }
-        return result;
+        return Map.of("records", result, "total", total);
     }
 }

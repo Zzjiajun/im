@@ -46,7 +46,8 @@ public class NotificationService {
             fromUserId,
             fromUser.getNickname(),
             fromUser.getAvatar(),
-            friendRequestId
+            friendRequestId,
+            null
         );
     }
 
@@ -67,7 +68,8 @@ public class NotificationService {
             fromUserId,
             fromUser.getNickname(),
             fromUser.getAvatar(),
-            fromUserId
+            fromUserId,
+            null
         );
     }
 
@@ -89,7 +91,8 @@ public class NotificationService {
             fromUserId,
             fromUser.getNickname(),
             fromUser.getAvatar(),
-            inviteId
+            inviteId,
+            null
         );
     }
 
@@ -114,7 +117,8 @@ public class NotificationService {
             fromUserId,
             fromUser.getNickname(),
             fromUser.getAvatar(),
-            messageId
+            messageId,
+            null
         );
     }
 
@@ -168,21 +172,46 @@ public class NotificationService {
             null,
             null,
             null,
-            groupId
+            groupId,
+            null
         );
     }
 
     /**
      * 创建系统公告
+     *
+     * @param adminId 创建公告的管理员 ID，存入 created_by 字段
      */
-    public void createSystemAnnouncement(String title, String content, List<Long> targetUserIds) {
+    public void createSystemAnnouncement(String title, String content, List<Long> targetUserIds, Long adminId) {
         Map<String, Object> data = new HashMap<>();
         data.put("announcementTitle", title);
         data.put("announcementContent", content);
 
         if (targetUserIds == null || targetUserIds.isEmpty()) {
-            // 发送给所有用户（这里简化处理，实际可能需要分批）
+            // 发送给所有用户 - 分批查询全部用户ID
             log.info("Broadcasting system announcement to all users: {}", title);
+            List<Long> allUserIds = userService.listAllUserIds();
+            if (allUserIds != null && !allUserIds.isEmpty()) {
+                int batchSize = 200;
+                for (int i = 0; i < allUserIds.size(); i += batchSize) {
+                    int end = Math.min(i + batchSize, allUserIds.size());
+                    List<Long> batch = allUserIds.subList(i, end);
+                    for (Long userId : batch) {
+                        createNotification(
+                            userId,
+                            NotificationType.SYSTEM_ANNOUNCEMENT.name(),
+                            title,
+                            content,
+                            data,
+                            null,
+                            "系统管理员",
+                            null,
+                            null,
+                            adminId
+                        );
+                    }
+                }
+            }
         } else {
             for (Long userId : targetUserIds) {
                 createNotification(
@@ -194,7 +223,8 @@ public class NotificationService {
                     null,
                     "系统管理员",
                     null,
-                    null
+                    null,
+                    adminId
                 );
             }
         }
@@ -205,7 +235,7 @@ public class NotificationService {
      */
     private void createNotification(Long userId, String type, String title, String content,
                                      Map<String, Object> data, Long senderId, String senderNickname,
-                                     String senderAvatar, Long relatedId) {
+                                     String senderAvatar, Long relatedId, Long createdBy) {
         try {
             Notification notification = new Notification();
             notification.setUserId(userId);
@@ -217,6 +247,7 @@ public class NotificationService {
             notification.setSenderNickname(senderNickname);
             notification.setSenderAvatar(senderAvatar);
             notification.setRelatedId(relatedId);
+            notification.setCreatedBy(createdBy);
             notification.setIsRead(false);
             notification.setCreatedAt(LocalDateTime.now());
             notification.setUpdatedAt(LocalDateTime.now());
@@ -257,9 +288,9 @@ public class NotificationService {
     }
 
     /**
-     * 管理员查看所有通知
+     * 管理员查看所有通知（分页，返回记录 + 总条数）
      */
-    public List<NotificationVO> adminNotifications(Long userId, String type, Boolean isRead, Integer page, Integer size) {
+    public Map<String, Object> adminNotifications(Long userId, String type, Boolean isRead, Integer page, Integer size) {
         int pageSize = size == null ? 50 : Math.min(size, 100);
         int pageNo = page == null ? 1 : Math.max(page, 1);
         int offset = (pageNo - 1) * pageSize;
@@ -277,11 +308,27 @@ public class NotificationService {
             wrapper.eq(Notification::getIsRead, isRead);
         }
 
-        wrapper.last("LIMIT " + pageSize + " OFFSET " + offset);
+        // 查询总条数（不带 LIMIT/OFFSET）
+        LambdaQueryWrapper<Notification> countWrapper = new LambdaQueryWrapper<Notification>()
+            .orderByDesc(Notification::getCreatedAt);
+        if (userId != null) {
+            countWrapper.eq(Notification::getUserId, userId);
+        }
+        if (type != null) {
+            countWrapper.eq(Notification::getType, type);
+        }
+        if (isRead != null) {
+            countWrapper.eq(Notification::getIsRead, isRead);
+        }
+        long total = notificationMapper.selectCount(countWrapper);
 
-        return notificationMapper.selectList(wrapper).stream()
+        // 查询当前页记录
+        wrapper.last("LIMIT " + pageSize + " OFFSET " + offset);
+        List<NotificationVO> records = notificationMapper.selectList(wrapper).stream()
             .map(this::buildNotificationVO)
             .toList();
+
+        return Map.of("records", records, "total", total);
     }
 
     /**
@@ -380,6 +427,7 @@ public class NotificationService {
             .senderNickname(notification.getSenderNickname())
             .senderAvatar(notification.getSenderAvatar())
             .relatedId(notification.getRelatedId())
+            .createdBy(notification.getCreatedBy())
             .isRead(notification.getIsRead())
             .readAt(notification.getReadAt())
             .createdAt(notification.getCreatedAt())

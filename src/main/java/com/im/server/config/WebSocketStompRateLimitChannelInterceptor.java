@@ -26,7 +26,7 @@ public class WebSocketStompRateLimitChannelInterceptor implements ChannelInterce
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
         StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-        if (accessor == null || !StompCommand.MESSAGE.equals(accessor.getCommand())) {
+        if (accessor == null || !StompCommand.SEND.equals(accessor.getCommand())) {
             return message;
         }
         WebSocketProperties.RateLimit rl = webSocketProperties.getRateLimit();

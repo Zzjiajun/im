@@ -32,6 +32,7 @@ public class FriendService {
     private final ConversationService conversationService;
     private final BlacklistService blacklistService;
     private final FriendTagService friendTagService;
+    private final NotificationService notificationService;
 
     public void sendRequest(Long userId, SendFriendRequestDTO request) {
         log.info("FriendService.sendRequest begin fromUserId={} toUserId={}", userId, request.getToUserId());
@@ -63,6 +64,9 @@ public class FriendService {
         friendRequestMapper.insert(friendRequest);
         log.info("FriendService.sendRequest ok fromUserId={} toUserId={} newId={}",
                 userId, request.getToUserId(), friendRequest.getId());
+
+        // 发送好友申请通知
+        notificationService.notifyFriendRequest(request.getToUserId(), userId, friendRequest.getId());
     }
 
     @Transactional
@@ -88,6 +92,9 @@ public class FriendService {
             saveRelation(friendRequest.getFromUserId(), friendRequest.getToUserId());
             saveRelation(friendRequest.getToUserId(), friendRequest.getFromUserId());
             conversationService.ensureSingleConversation(friendRequest.getFromUserId(), friendRequest.getToUserId());
+
+            // 发送好友申请通过通知
+            notificationService.notifyFriendAccepted(friendRequest.getFromUserId(), friendRequest.getToUserId());
         }
     }
 
@@ -182,6 +189,15 @@ public class FriendService {
     }
 
     private void saveRelation(Long userId, Long friendUserId) {
+        // 避免重复插入好友关系
+        long existing = friendRelationMapper.selectCount(
+            new LambdaQueryWrapper<FriendRelation>()
+                .eq(FriendRelation::getUserId, userId)
+                .eq(FriendRelation::getFriendUserId, friendUserId)
+        );
+        if (existing > 0) {
+            return;
+        }
         FriendRelation relation = new FriendRelation();
         relation.setUserId(userId);
         relation.setFriendUserId(friendUserId);

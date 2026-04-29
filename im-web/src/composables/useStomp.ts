@@ -50,8 +50,8 @@ export function connectStomp(
     brokerURL,
     connectHeaders: { Authorization: `Bearer ${token}` },
     reconnectDelay: 5000,
-    heartbeatIncoming: 10000,
-    heartbeatOutgoing: 10000,
+    heartbeatIncoming: 20000,
+    heartbeatOutgoing: 20000,
     onConnect: () => {
       client?.subscribe('/user/queue/messages', (msg: IMessage) => {
         try {

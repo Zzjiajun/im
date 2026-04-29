@@ -33,6 +33,8 @@ http.interceptors.response.use(
       "网络错误";
     if (status === 401 || status === 403) {
       setToken(null);
+      // 自动跳转到登录页
+      window.location.href = "/login";
     }
     return Promise.reject(new Error(msg));
   }
