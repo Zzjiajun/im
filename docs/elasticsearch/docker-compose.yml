@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  elasticsearch:
+    image: elasticsearch:7.17.27
+    container_name: im-es
+    restart: unless-stopped
+    environment:
+      - cluster.name=im-es-cluster
+      - node.name=im-es-node
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ingest.geoip.downloader.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+      - es-logs:/usr/share/elasticsearch/logs
+      - es-plugins:/usr/share/elasticsearch/plugins
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - im-network
+
+  kibana:
+    image: kibana:7.17.27
+    container_name: im-kibana
+    restart: unless-stopped
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - I18N_LOCALE=zh-CN
+    ports:
+      - "5601:5601"
+    networks:
+      - im-network
+
+networks:
+  im-network:
+    driver: bridge
+
+volumes:
+  es-data:
+    driver: local
+  es-logs:
+    driver: local
+  es-plugins:
+    driver: local
