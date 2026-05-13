@@ -22,6 +22,9 @@ import com.im.server.model.vo.MessageReceiptVO;
 import com.im.server.model.vo.MessageSearchPageVO;
 import com.im.server.security.LoginUser;
 import com.im.server.service.MessageService;
+import com.im.server.service.message.MessageInteractionService;
+import com.im.server.service.message.MessageReadService;
+import com.im.server.service.message.MessageSendService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -40,11 +43,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class MessageController {
 
     private final MessageService messageService;
+    private final MessageSendService messageSendService;
+    private final MessageInteractionService messageInteractionService;
+    private final MessageReadService messageReadService;
 
     @PostMapping("/send")
     public ApiResponse<ChatMessageVO> send(@CurrentUser LoginUser loginUser,
                                            @Valid @RequestBody SendMessageRequest request) {
-        return ApiResponse.success(messageService.sendMessage(loginUser.getUserId(), request));
+        return ApiResponse.success(messageSendService.sendMessage(loginUser.getUserId(), request));
     }
 
     @GetMapping("/conversation/{conversationId}")
@@ -70,53 +76,53 @@ public class MessageController {
     @PostMapping("/favorite")
     public ApiResponse<Void> favorite(@CurrentUser LoginUser loginUser,
                                       @Valid @RequestBody FavoriteMessageRequest request) {
-        messageService.favoriteMessage(loginUser.getUserId(), request);
+        messageInteractionService.favoriteMessage(loginUser.getUserId(), request);
         return ApiResponse.success("收藏成功", null);
     }
 
     @PostMapping("/favorite/batch")
     public ApiResponse<Void> batchFavorite(@CurrentUser LoginUser loginUser,
                                            @Valid @RequestBody BatchFavoriteRequest request) {
-        messageService.batchFavoriteMessages(loginUser.getUserId(), request);
+        messageInteractionService.batchFavoriteMessages(loginUser.getUserId(), request);
         return ApiResponse.success("批量收藏已处理", null);
     }
 
     @DeleteMapping("/favorite/{messageId}")
     public ApiResponse<Void> cancelFavorite(@CurrentUser LoginUser loginUser,
                                             @PathVariable Long messageId) {
-        messageService.cancelFavorite(loginUser.getUserId(), messageId);
+        messageInteractionService.cancelFavorite(loginUser.getUserId(), messageId);
         return ApiResponse.success("已取消收藏", null);
     }
 
     @PostMapping("/favorite/update")
     public ApiResponse<Void> updateFavorite(@CurrentUser LoginUser loginUser,
                                             @Valid @RequestBody FavoriteMessageRequest request) {
-        messageService.updateFavorite(loginUser.getUserId(), request);
+        messageInteractionService.updateFavorite(loginUser.getUserId(), request);
         return ApiResponse.success("收藏信息已更新", null);
     }
 
     @PostMapping("/forward")
     public ApiResponse<List<ChatMessageVO>> forward(@CurrentUser LoginUser loginUser,
                                                     @Valid @RequestBody ForwardMessageRequest request) {
-        return ApiResponse.success(messageService.forwardMessages(loginUser.getUserId(), request));
+        return ApiResponse.success(messageSendService.forwardMessages(loginUser.getUserId(), request));
     }
 
     @PostMapping("/forward/batch")
     public ApiResponse<List<ChatMessageVO>> batchForward(@CurrentUser LoginUser loginUser,
                                                          @Valid @RequestBody BatchForwardMessagesRequest request) {
-        return ApiResponse.success(messageService.batchForwardMessages(loginUser.getUserId(), request));
+        return ApiResponse.success(messageSendService.batchForwardMessages(loginUser.getUserId(), request));
     }
 
     @PostMapping("/forward/merge")
     public ApiResponse<List<ChatMessageVO>> mergeForward(@CurrentUser LoginUser loginUser,
                                                          @Valid @RequestBody MergeForwardMessagesRequest request) {
-        return ApiResponse.success(messageService.mergeForwardMessages(loginUser.getUserId(), request));
+        return ApiResponse.success(messageSendService.mergeForwardMessages(loginUser.getUserId(), request));
     }
 
     @PostMapping("/deliver")
     public ApiResponse<Void> deliver(@CurrentUser LoginUser loginUser,
                                      @Valid @RequestBody MarkDeliveredRequest request) {
-        messageService.markDelivered(loginUser.getUserId(), request);
+        messageReadService.markDelivered(loginUser.getUserId(), request);
         return ApiResponse.success("已回执送达状态", null);
     }
 
@@ -131,79 +137,79 @@ public class MessageController {
     public ApiResponse<List<FavoriteMessageVO>> favorites(@CurrentUser LoginUser loginUser,
                                                           @RequestParam(required = false) String keyword,
                                                           @RequestParam(required = false) String categoryName) {
-        return ApiResponse.success(messageService.listFavorites(loginUser.getUserId(), keyword, categoryName));
+        return ApiResponse.success(messageInteractionService.listFavorites(loginUser.getUserId(), keyword, categoryName));
     }
 
     @PostMapping("/pin")
     public ApiResponse<Void> pin(@CurrentUser LoginUser loginUser,
                                  @Valid @RequestBody PinMessageRequest request) {
-        messageService.pinMessage(loginUser.getUserId(), request.getMessageId());
+        messageInteractionService.pinMessage(loginUser.getUserId(), request.getMessageId());
         return ApiResponse.success("已置顶消息", null);
     }
 
     @PostMapping("/unpin")
     public ApiResponse<Void> unpin(@CurrentUser LoginUser loginUser,
                                    @Valid @RequestBody PinMessageRequest request) {
-        messageService.unpinMessage(loginUser.getUserId(), request.getMessageId());
+        messageInteractionService.unpinMessage(loginUser.getUserId(), request.getMessageId());
         return ApiResponse.success("已取消置顶消息", null);
     }
 
     @GetMapping("/pinned")
     public ApiResponse<List<ChatMessageVO>> pinned(@CurrentUser LoginUser loginUser,
                                                    @RequestParam(required = false) Long conversationId) {
-        return ApiResponse.success(messageService.listPinnedMessages(loginUser.getUserId(), conversationId));
+        return ApiResponse.success(messageInteractionService.listPinnedMessages(loginUser.getUserId(), conversationId));
     }
 
     @GetMapping("/{messageId}/reads")
     public ApiResponse<List<MessageReceiptVO>> reads(@CurrentUser LoginUser loginUser,
                                                      @PathVariable Long messageId) {
-        return ApiResponse.success(messageService.listReadReceipts(loginUser.getUserId(), messageId));
+        return ApiResponse.success(messageReadService.listReadReceipts(loginUser.getUserId(), messageId));
     }
 
     @GetMapping("/{messageId}/delivers")
     public ApiResponse<List<MessageReceiptVO>> delivers(@CurrentUser LoginUser loginUser,
                                                         @PathVariable Long messageId) {
-        return ApiResponse.success(messageService.listDeliverReceipts(loginUser.getUserId(), messageId));
+        return ApiResponse.success(messageReadService.listDeliverReceipts(loginUser.getUserId(), messageId));
     }
 
     @PostMapping("/read")
     public ApiResponse<Void> markRead(@CurrentUser LoginUser loginUser,
                                       @Valid @RequestBody MarkReadRequest request) {
-        messageService.markRead(loginUser.getUserId(), request);
+        messageReadService.markRead(loginUser.getUserId(), request);
         return ApiResponse.success("已更新消息已读状态", null);
     }
 
     @PostMapping("/recall")
     public ApiResponse<Void> recall(@CurrentUser LoginUser loginUser,
                                     @Valid @RequestBody RecallMessageRequest request) {
-        messageService.recallMessage(loginUser.getUserId(), request);
+        messageSendService.recallMessage(loginUser.getUserId(), request);
         return ApiResponse.success("撤回成功", null);
     }
 
     @PostMapping("/edit")
     public ApiResponse<ChatMessageVO> edit(@CurrentUser LoginUser loginUser,
                                            @Valid @RequestBody EditMessageRequest request) {
-        return ApiResponse.success(messageService.editMessage(loginUser.getUserId(), request));
+        return ApiResponse.success(messageSendService.editMessage(loginUser.getUserId(), request));
     }
 
     @PostMapping("/report")
     public ApiResponse<Void> report(@CurrentUser LoginUser loginUser,
                                     @Valid @RequestBody ReportMessageRequest request) {
-        messageService.reportMessage(loginUser.getUserId(), request);
+        messageSendService.reportMessage(loginUser.getUserId(), request);
         return ApiResponse.success("举报成功", null);
     }
 
     @PostMapping("/react")
     public ApiResponse<Void> react(@CurrentUser LoginUser loginUser,
                                    @Valid @RequestBody ReactMessageRequest request) {
-        messageService.reactMessage(loginUser.getUserId(), request);
+        messageInteractionService.reactMessage(loginUser.getUserId(), request);
         return ApiResponse.success("已添加消息反应", null);
     }
 
     @PostMapping("/react/remove")
     public ApiResponse<Void> removeReaction(@CurrentUser LoginUser loginUser,
                                             @Valid @RequestBody ReactMessageRequest request) {
-        messageService.removeReaction(loginUser.getUserId(), request);
+        messageInteractionService.removeReaction(loginUser.getUserId(), request);
         return ApiResponse.success("已取消消息反应", null);
     }
 }

@@ -216,7 +216,15 @@ export interface MediaFile {
   contentType?: string | null
 }
 
-export type VerifyCodePurpose = 'REGISTER' | 'RESET_PASSWORD'
+export type VerifyCodePurpose = 'REGISTER' | 'LOGIN' | 'RESET_PASSWORD'
+
+export interface VerifyCodeLoginRequest {
+  authType: AuthType
+  account: string
+  verifyCode: string
+  deviceId?: string
+  deviceName?: string
+}
 
 export interface SendVerifyCodeRequest {
   authType: AuthType
@@ -512,31 +520,4 @@ export interface MessageReportAdminVO {
   createdAt?: string | null
   messagePreview?: string | null
   conversationId?: SnowflakeId | null
-}
-
-// 通知中心相关接口
-export interface NotificationVO {
-  id: number
-  type: string
-  title: string
-  content: string
-  data?: string | null
-  senderId?: SnowflakeId | null
-  senderNickname?: string | null
-  senderAvatar?: string | null
-  relatedId?: SnowflakeId | null
-  isRead: boolean
-  readAt?: string | null
-  createdAt?: string | null
-}
-
-export interface NotificationUnreadVO {
-  totalCount: number
-  unreadCount: number
-}
-
-export interface NotificationListRequest {
-  isRead?: boolean
-  page?: number
-  size?: number
 }

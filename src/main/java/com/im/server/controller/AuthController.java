@@ -11,6 +11,7 @@ import com.im.server.model.dto.RegisterRequest;
 import com.im.server.model.dto.ResetPasswordRequest;
 import com.im.server.model.dto.SendVerifyCodeRequest;
 import com.im.server.model.dto.UpdateProfileRequest;
+import com.im.server.model.dto.VerifyCodeLoginRequest;
 import com.im.server.model.entity.User;
 import com.im.server.config.AppAuthProperties;
 import com.im.server.model.vo.PublicAuthConfigVO;
@@ -20,9 +21,12 @@ import com.im.server.service.AuthService;
 import com.im.server.service.UserService;
 import com.im.server.service.UserSessionService;
 import com.im.server.service.VerificationCodeNotifyService;
+import jakarta.annotation.PostConstruct;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +38,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
+@Slf4j
 public class AuthController {
 
     private final AuthService authService;
@@ -41,14 +46,26 @@ public class AuthController {
     private final UserSessionService userSessionService;
     private final AppAuthProperties appAuthProperties;
     private final VerificationCodeNotifyService verificationCodeNotifyService;
+    private final Environment environment;
+
+    @PostConstruct
+    void debugConfig() {
+        log.info("=== phoneAuthEnabled from props: {}, from env: {} ===",
+            appAuthProperties.isPhoneAuthEnabled(),
+            environment.getProperty("app.auth.phone-auth-enabled"));
+    }
 
     @GetMapping("/public-config")
     public ApiResponse<PublicAuthConfigVO> publicConfig() {
+        String raw = environment.getProperty("app.auth.phone-auth-enabled");
+        boolean phoneEnabled = "true".equals(raw);
+        log.info(">>> publicConfig called, raw env value = [{}], parsed = {}, env class = {}",
+            raw, phoneEnabled, environment.getClass().getName());
         return ApiResponse.success(PublicAuthConfigVO.builder()
             .verifyOnRegister(appAuthProperties.isVerifyOnRegister())
             .emailDeliveryAvailable(verificationCodeNotifyService.isEmailDeliveryAvailable())
             .smsStubMode(appAuthProperties.isSmsStubModeForPublicApi())
-            .phoneAuthEnabled(appAuthProperties.isPhoneAuthEnabled())
+            .phoneAuthEnabled(phoneEnabled)
             .build());
     }
 
@@ -60,6 +77,11 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.success(authService.login(request));
+    }
+
+    @PostMapping("/login-code")
+    public ApiResponse<LoginResponse> loginByCode(@Valid @RequestBody VerifyCodeLoginRequest request) {
+        return ApiResponse.success(authService.loginByVerifyCode(request));
     }
 
     @PostMapping("/send-code")

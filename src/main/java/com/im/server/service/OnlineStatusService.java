@@ -1,5 +1,6 @@
 package com.im.server.service;
 
+import com.im.server.common.RedisKeyConstants;
 import com.im.server.model.vo.UserOnlineStatusVO;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -47,7 +48,18 @@ public class OnlineStatusService {
         return result;
     }
 
+    public List<UserOnlineStatusVO> listAllowedStatuses(List<Long> userIds, Set<Long> allowedUserIds) {
+        Set<Long> deduplicated = new LinkedHashSet<>(userIds);
+        List<UserOnlineStatusVO> result = new ArrayList<>();
+        for (Long userId : deduplicated) {
+            if (userId != null && allowedUserIds.contains(userId)) {
+                result.add(new UserOnlineStatusVO(userId, isOnline(userId)));
+            }
+        }
+        return result;
+    }
+
     private String key(Long userId) {
-        return "im:online:user:" + userId;
+        return RedisKeyConstants.onlineUser(userId);
     }
 }

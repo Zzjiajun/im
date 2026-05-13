@@ -29,7 +29,8 @@ public class VerificationCodeNotifyService {
 
     public void notifyAccount(AuthType authType, String account, VerifyCodePurpose purpose, String code, int ttlSeconds) {
         if (appAuthProperties.isVerifyCodeLog()) {
-            log.info("[VerifyCode] purpose={} type={} account={} code={} (ttl={}s)", purpose, authType, account, code, ttlSeconds);
+            log.debug("[VerifyCode] purpose={} type={} account={} code={} (ttl={}s)",
+                purpose, authType, maskAccount(account), maskCode(code), ttlSeconds);
         }
         if (authType == AuthType.EMAIL) {
             trySendEmail(account, purpose, code, ttlSeconds);
@@ -66,5 +67,29 @@ public class VerificationCodeNotifyService {
         } catch (Exception e) {
             log.error("发送验证码邮件失败 to={}: {}", to, e.getMessage());
         }
+    }
+
+    private static String maskAccount(String account) {
+        if (StringUtils.isBlank(account)) {
+            return "";
+        }
+        String trimmed = account.trim();
+        int at = trimmed.indexOf('@');
+        if (at > 0) {
+            String local = trimmed.substring(0, at);
+            String domain = trimmed.substring(at);
+            return StringUtils.left(local, 2) + "***" + domain;
+        }
+        if (trimmed.length() <= 7) {
+            return StringUtils.left(trimmed, 2) + "***";
+        }
+        return StringUtils.left(trimmed, 3) + "****" + StringUtils.right(trimmed, 4);
+    }
+
+    private static String maskCode(String code) {
+        if (StringUtils.isBlank(code)) {
+            return "";
+        }
+        return "***" + StringUtils.right(code, 2);
     }
 }

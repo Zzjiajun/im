@@ -1,6 +1,7 @@
 package com.im.server.controller;
 
 import com.im.server.common.ApiResponse;
+import com.im.server.common.BusinessException;
 import com.im.server.common.CurrentUser;
 import com.im.server.model.dto.CreateStickerItemRequest;
 import com.im.server.model.dto.CreateStickerPackRequest;
@@ -44,8 +45,8 @@ public class StickerController {
     }
 
     private void assertAdmin(LoginUser loginUser) {
-        if (!loginUser.isAdmin()) {
-            throw new com.im.server.common.BusinessException("需要管理员权限");
+        if (loginUser == null || !loginUser.isAdmin()) {
+            throw new BusinessException("需要管理员权限");
         }
     }
 }

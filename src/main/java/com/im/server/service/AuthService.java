@@ -11,6 +11,7 @@ import com.im.server.model.dto.OAuthLoginRequest;
 import com.im.server.model.dto.RegisterRequest;
 import com.im.server.model.dto.ResetPasswordRequest;
 import com.im.server.model.dto.SendVerifyCodeRequest;
+import com.im.server.model.dto.VerifyCodeLoginRequest;
 import com.im.server.model.entity.User;
 import com.im.server.model.entity.UserOauthBinding;
 import com.im.server.model.enums.AuthType;
@@ -169,13 +170,52 @@ public class AuthService {
                 throw new BusinessException("账号不存在");
             }
         }
+        // LOGIN 目的不校验账号存在性（允许 auto-register）
         verificationCodeService.sendCode(request.getAuthType(), account, request.getPurpose());
+    }
+
+    @Transactional
+    public LoginResponse loginByVerifyCode(VerifyCodeLoginRequest request) {
+        assertPhoneAuthAllowed(request.getAuthType());
+        verificationCodeService.assertCode(
+            request.getAuthType(), request.getAccount(), VerifyCodePurpose.LOGIN, request.getVerifyCode());
+
+        User user = getByAccount(request.getAuthType(), request.getAccount());
+        if (user == null) {
+            if (!appAuthProperties.isAutoRegisterOnCodeLogin()) {
+                throw new BusinessException("账号不存在");
+            }
+            // auto-register
+            String nickname = pickUniquePhoneNickname(request.getAccount());
+            user = new User();
+            user.setNickname(nickname);
+            user.setPassword(passwordEncoder.encode(UUID.randomUUID().toString()));
+            user.setStatus(1);
+            user.setAdmin(0);
+            user.setCreatedAt(LocalDateTime.now());
+            user.setUpdatedAt(LocalDateTime.now());
+            if (request.getAuthType() == AuthType.PHONE) {
+                user.setPhone(request.getAccount());
+            } else {
+                user.setEmail(request.getAccount());
+            }
+            userMapper.insert(user);
+        }
+        assertAccountActive(user);
+        UserSessionService.SessionTokens session =
+            userSessionService.createSession(user.getId(), request.getDeviceId(), request.getDeviceName());
+        return buildLoginResponse(user, session.refreshTokenPlain());
     }
 
     private void assertPhoneAuthAllowed(AuthType authType) {
         if (authType == AuthType.PHONE && !appAuthProperties.isPhoneAuthEnabled()) {
             throw new BusinessException("当前仅支持邮箱，请使用邮箱注册或登录");
         }
+    }
+
+    private String pickUniquePhoneNickname(String phone) {
+        String base = "u_" + (phone.length() >= 4 ? phone.substring(phone.length() - 4) : phone);
+        return pickUniqueOAuthNickname(base);
     }
 
     private String pickUniqueOAuthNickname(String base) {

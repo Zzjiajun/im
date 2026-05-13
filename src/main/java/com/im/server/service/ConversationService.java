@@ -42,22 +42,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
 public class ConversationService {
-
-    private static final Logger log = LoggerFactory.getLogger(ConversationService.class);
 
     private final ChatMessageMapper chatMessageMapper;
     private final ConversationMapper conversationMapper;
@@ -69,7 +61,7 @@ public class ConversationService {
     private final WsPushService wsPushService;
     private final BlacklistService blacklistService;
     private final GroupInviteMapper groupInviteMapper;
-    private final NotificationService notificationService;
+    private final com.im.server.service.mapper.GroupInviteMapper groupInviteMapping;
 
     @Transactional
     public Conversation ensureSingleConversation(Long userId, Long targetUserId) {
@@ -77,31 +69,24 @@ public class ConversationService {
             new LambdaQueryWrapper<ConversationMember>().eq(ConversationMember::getUserId, userId)
         );
         if (!myConversations.isEmpty()) {
-            List<Long> allConvIds = myConversations.stream()
-                .map(ConversationMember::getConversationId)
-                .collect(Collectors.toList());
-
-            // 批量加载所有会话
-            Map<Long, Conversation> convMap = conversationMapper.selectBatchIds(allConvIds).stream()
-                .filter(c -> c != null && ConversationType.SINGLE.name().equals(c.getType()))
-                .collect(Collectors.toMap(Conversation::getId, Function.identity()));
-
-            // 批量查出这些会话的所有 member
-            Map<Long, List<ConversationMember>> membersByConv = conversationMemberMapper.selectList(
-                new LambdaQueryWrapper<ConversationMember>()
-                    .in(ConversationMember::getConversationId, convMap.keySet())
-            ).stream().collect(Collectors.groupingBy(ConversationMember::getConversationId));
-
-            for (Map.Entry<Long, Conversation> entry : convMap.entrySet()) {
-                Long conversationId = entry.getKey();
-                List<ConversationMember> members = membersByConv.get(conversationId);
-                if (members == null || members.size() != 2) {
+            for (ConversationMember myConversation : myConversations) {
+                Long conversationId = myConversation.getConversationId();
+                long memberCount = conversationMemberMapper.selectCount(
+                    new LambdaQueryWrapper<ConversationMember>().eq(ConversationMember::getConversationId, conversationId)
+                );
+                if (memberCount != 2) {
                     continue;
                 }
-                boolean hasTarget = members.stream()
-                    .anyMatch(m -> m.getUserId().equals(targetUserId));
-                if (hasTarget) {
-                    return entry.getValue();
+                Conversation conversation = conversationMapper.selectById(conversationId);
+                if (conversation != null && ConversationType.SINGLE.name().equals(conversation.getType())) {
+                    long targetCount = conversationMemberMapper.selectCount(
+                        new LambdaQueryWrapper<ConversationMember>()
+                            .eq(ConversationMember::getConversationId, conversationId)
+                            .eq(ConversationMember::getUserId, targetUserId)
+                    );
+                    if (targetCount > 0) {
+                        return conversation;
+                    }
                 }
             }
         }
@@ -154,22 +139,14 @@ public class ConversationService {
                 .eq(ConversationMember::getUserId, userId)
                 .isNull(ConversationMember::getDeletedAt)
         );
-        if (members.isEmpty()) {
-            return List.of();
+        List<Conversation> conversations = new ArrayList<>();
+        for (ConversationMember member : members) {
+            Conversation conversation = conversationMapper.selectById(member.getConversationId());
+            if (conversation != null) {
+                conversations.add(conversation);
+            }
         }
-        // 批量加载所有会话（替代逐条 selectById）
-        List<Long> conversationIds = members.stream()
-            .map(ConversationMember::getConversationId)
-            .toList();
-        List<Conversation> all = conversationMapper.selectBatchIds(conversationIds);
-        // 保持与 members 顺序一致，过滤 null
-        Map<Long, Conversation> map = all.stream()
-            .filter(c -> c != null)
-            .collect(Collectors.toMap(Conversation::getId, Function.identity()));
-        return members.stream()
-            .map(m -> map.get(m.getConversationId()))
-            .filter(c -> c != null)
-            .toList();
+        return conversations;
     }
 
     public List<ConversationListVO> listConversationViews(Long userId) {
@@ -231,17 +208,9 @@ public class ConversationService {
             mw.and(w -> w.eq(ConversationMember::getArchived, 0).or().isNull(ConversationMember::getArchived));
         }
         List<ConversationMember> memberships = conversationMemberMapper.selectList(mw);
-        // 批量加载所有会话（替代逐条 selectById）
-        List<Long> conversationIds = memberships.stream()
-            .map(ConversationMember::getConversationId)
-            .toList();
-        Map<Long, Conversation> conversationMap = conversationIds.isEmpty() ? Map.of()
-            : conversationMapper.selectBatchIds(conversationIds).stream()
-                .filter(c -> c != null)
-                .collect(Collectors.toMap(Conversation::getId, Function.identity()));
         List<ConversationListVO> result = new ArrayList<>();
         for (ConversationMember membership : memberships) {
-            Conversation conversation = conversationMap.get(membership.getConversationId());
+            Conversation conversation = conversationMapper.selectById(membership.getConversationId());
             if (conversation != null) {
                 result.add(buildConversationView(userId, conversation));
             }
@@ -315,6 +284,27 @@ public class ConversationService {
         return conversationMemberMapper.selectList(
             new LambdaQueryWrapper<ConversationMember>().eq(ConversationMember::getConversationId, conversationId)
         ).stream().map(ConversationMember::getUserId).toList();
+    }
+
+    public Set<Long> listAllVisibleMemberIds(Long userId) {
+        List<ConversationMember> myMemberships = conversationMemberMapper.selectList(
+            new LambdaQueryWrapper<ConversationMember>()
+                .eq(ConversationMember::getUserId, userId)
+                .isNull(ConversationMember::getDeletedAt)
+        );
+        if (myMemberships.isEmpty()) return new LinkedHashSet<>();
+        List<Long> conversationIds = myMemberships.stream()
+            .map(ConversationMember::getConversationId).toList();
+        List<ConversationMember> allMembers = conversationMemberMapper.selectList(
+            new LambdaQueryWrapper<ConversationMember>()
+                .in(ConversationMember::getConversationId, conversationIds)
+                .isNull(ConversationMember::getDeletedAt)
+        );
+        Set<Long> memberIds = new LinkedHashSet<>();
+        for (ConversationMember m : allMembers) {
+            memberIds.add(m.getUserId());
+        }
+        return memberIds;
     }
 
     public List<Long> listVisibleMemberIds(Long conversationId) {
@@ -508,13 +498,8 @@ public class ConversationService {
             }
         }
         if (!uniqueMembers.isEmpty()) {
-            String operatorNickname = userService.getSimpleUser(operatorId).getNickname();
-            createSystemMessage(operatorId, conversationId, operatorNickname + " 邀请了成员加入群聊");
-            String groupName = StringUtils.defaultIfBlank(conversation.getName(), "群聊");
-            for (Long memberId : uniqueMembers) {
-                notificationService.notifyGroupMemberChange(
-                    memberId, "member_added", groupName, conversationId, operatorNickname);
-            }
+            createSystemMessage(operatorId, conversationId, userService.getSimpleUser(operatorId).getNickname()
+                + " 邀请了成员加入群聊");
         }
     }
 
@@ -543,13 +528,8 @@ public class ConversationService {
             );
         }
         if (!memberIds.isEmpty()) {
-            String operatorNickname = userService.getSimpleUser(operatorId).getNickname();
-            createSystemMessage(operatorId, conversationId, operatorNickname + " 移除了群成员");
-            String groupName = StringUtils.defaultIfBlank(conversation.getName(), "群聊");
-            for (Long memberId : new LinkedHashSet<>(memberIds)) {
-                notificationService.notifyGroupMemberChange(
-                    memberId, "removed", groupName, conversationId, operatorNickname);
-            }
+            createSystemMessage(operatorId, conversationId, userService.getSimpleUser(operatorId).getNickname()
+                + " 移除了群成员");
         }
     }
 
@@ -723,26 +703,12 @@ public class ConversationService {
             .createdAt(message.getCreatedAt())
             .build();
 
-        // 事务提交后异步推送，避免大事务
-        ChatMessageVO finalMessageVO = messageVO;
-        Long finalConversationId = conversationId;
-        Long finalOperatorId = operatorId;
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    for (Long memberId : listVisibleMemberIds(finalConversationId)) {
-                        if (!memberId.equals(finalOperatorId)) {
-                            unreadCacheService.incrementUnread(memberId, finalConversationId);
-                        }
-                        wsPushService.pushToUser(memberId, new WsEvent<>("MESSAGE", finalMessageVO));
-                    }
-                } catch (Exception e) {
-                    log.warn("[SysMsg] 推送失败 conversationId={} error={}",
-                        finalConversationId, e.getMessage());
-                }
+        for (Long memberId : listVisibleMemberIds(conversationId)) {
+            if (!memberId.equals(operatorId)) {
+                unreadCacheService.incrementUnread(memberId, conversationId);
+                wsPushService.pushToUser(memberId, new WsEvent<>("MESSAGE", messageVO));
             }
-        });
+        }
     }
 
     private String buildProfileUpdateText(UpdateGroupProfileRequest request) {
@@ -933,11 +899,7 @@ public class ConversationService {
         invite.setUsedCount(0);
         invite.setCreatedAt(LocalDateTime.now());
         groupInviteMapper.insert(invite);
-        return GroupInviteCreatedVO.builder()
-            .token(token)
-            .expireAt(invite.getExpireAt())
-            .maxUses(invite.getMaxUses())
-            .build();
+        return groupInviteMapping.toCreatedVO(invite);
     }
 
     @Transactional

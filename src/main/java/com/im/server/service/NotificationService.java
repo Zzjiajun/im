@@ -2,20 +2,18 @@ package com.im.server.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.server.mapper.NotificationMapper;
 import com.im.server.model.entity.Notification;
-import com.im.server.model.entity.User;
-import com.im.server.model.enums.NotificationType;
+import com.im.server.model.vo.UserSimpleVO;
 import com.im.server.model.vo.NotificationUnreadVO;
 import com.im.server.model.vo.NotificationVO;
 import com.im.server.model.vo.WsEvent;
+import com.im.server.service.notification.NotificationFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,154 +25,65 @@ public class NotificationService {
     private final NotificationMapper notificationMapper;
     private final UserService userService;
     private final WsPushService wsPushService;
-    private final ObjectMapper objectMapper;
+    private final NotificationFactory notificationFactory;
+    private final com.im.server.service.mapper.NotificationMapper notificationMapping;
 
     /**
      * 创建好友申请通知
      */
     public void notifyFriendRequest(Long toUserId, Long fromUserId, Long friendRequestId) {
-        User fromUser = userService.getUser(fromUserId);
-        Map<String, Object> data = new HashMap<>();
-        data.put("friendRequestId", friendRequestId);
-
-        createNotification(
-            toUserId,
-            NotificationType.FRIEND_REQUEST.name(),
-            "新的好友申请",
-            fromUser.getNickname() + " 请求添加你为好友",
-            data,
-            fromUserId,
-            fromUser.getNickname(),
-            fromUser.getAvatar(),
-            friendRequestId,
-            null
+        UserSimpleVO fromUser = userService.getSimpleUser(fromUserId);
+        Notification notification = notificationFactory.createFriendRequest(
+            toUserId, fromUserId, friendRequestId,
+            fromUser.getNickname(), fromUser.getAvatar()
         );
+        saveAndPush(notification);
     }
 
     /**
      * 创建好友被接受通知
      */
     public void notifyFriendAccepted(Long toUserId, Long fromUserId) {
-        User fromUser = userService.getUser(fromUserId);
-        Map<String, Object> data = new HashMap<>();
-        data.put("friendUserId", fromUserId);
-
-        createNotification(
-            toUserId,
-            NotificationType.FRIEND_ACCEPTED.name(),
-            "好友申请已通过",
-            fromUser.getNickname() + " 通过了你的好友申请",
-            data,
-            fromUserId,
-            fromUser.getNickname(),
-            fromUser.getAvatar(),
-            fromUserId,
-            null
+        UserSimpleVO fromUser = userService.getSimpleUser(fromUserId);
+        Notification notification = notificationFactory.createFriendAccepted(
+            toUserId, fromUserId,
+            fromUser.getNickname(), fromUser.getAvatar()
         );
+        saveAndPush(notification);
     }
 
     /**
      * 创建群邀请通知
      */
     public void notifyGroupInvite(Long toUserId, Long fromUserId, String groupName, Long groupId, Long inviteId) {
-        User fromUser = userService.getUser(fromUserId);
-        Map<String, Object> data = new HashMap<>();
-        data.put("groupId", groupId);
-        data.put("inviteId", inviteId);
-
-        createNotification(
-            toUserId,
-            NotificationType.GROUP_INVITE.name(),
-            "群聊邀请",
-            fromUser.getNickname() + " 邀请你加入群聊 \"" + groupName + "\"",
-            data,
-            fromUserId,
-            fromUser.getNickname(),
-            fromUser.getAvatar(),
-            inviteId,
-            null
+        UserSimpleVO fromUser = userService.getSimpleUser(fromUserId);
+        Notification notification = notificationFactory.createGroupInvite(
+            toUserId, fromUserId, groupName, groupId, inviteId,
+            fromUser.getNickname(), fromUser.getAvatar()
         );
+        saveAndPush(notification);
     }
 
     /**
      * 创建@消息通知
      */
     public void notifyMention(Long toUserId, Long fromUserId, String content, Long conversationId, Long messageId) {
-        User fromUser = userService.getUser(fromUserId);
-        Map<String, Object> data = new HashMap<>();
-        data.put("conversationId", conversationId);
-        data.put("messageId", messageId);
-        data.put("messageContent", content);
-
-        String preview = content.length() > 50 ? content.substring(0, 50) + "..." : content;
-
-        createNotification(
-            toUserId,
-            NotificationType.MENTION.name(),
-            "你在群聊中被@了",
-            fromUser.getNickname() + " 在群聊中@了你: " + preview,
-            data,
-            fromUserId,
-            fromUser.getNickname(),
-            fromUser.getAvatar(),
-            messageId,
-            null
+        UserSimpleVO fromUser = userService.getSimpleUser(fromUserId);
+        Notification notification = notificationFactory.createMention(
+            toUserId, fromUserId, content, conversationId, messageId,
+            fromUser.getNickname(), fromUser.getAvatar()
         );
+        saveAndPush(notification);
     }
 
     /**
      * 创建群成员变化通知
      */
     public void notifyGroupMemberChange(Long toUserId, String type, String groupName, Long groupId, String operatorNickname) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("groupId", groupId);
-
-        String title;
-        String content;
-
-        switch (type) {
-            case "member_added" -> {
-                title = "你已被添加到群聊";
-                content = operatorNickname + " 将你添加到群聊 \"" + groupName + "\"";
-            }
-            case "joined_via_invite" -> {
-                title = "成员通过邀请链接加入";
-                content = operatorNickname + " 通过邀请链接加入了群聊 \"" + groupName + "\"";
-            }
-            case "removed" -> {
-                title = "你已被移出群聊";
-                content = "你已被移出群聊 \"" + groupName + "\"";
-            }
-            case "group_deleted" -> {
-                title = "群聊已解散";
-                content = "群聊 \"" + groupName + "\" 已被解散";
-            }
-            case "admin_added" -> {
-                title = "你被设为管理员";
-                content = "你在群聊 \"" + groupName + "\" 被设为管理员";
-            }
-            case "admin_removed" -> {
-                title = "你被取消管理员";
-                content = "你在群聊 \"" + groupName + "\" 被取消管理员资格";
-            }
-            default -> {
-                title = "群聊变化通知";
-                content = "群聊 \"" + groupName + "\" 发生变化";
-            }
-        }
-
-        createNotification(
-            toUserId,
-            NotificationType.GROUP_MEMBER_CHANGE.name(),
-            title,
-            content,
-            data,
-            null,
-            null,
-            null,
-            groupId,
-            null
+        Notification notification = notificationFactory.createGroupMemberChange(
+            toUserId, type, groupName, groupId, operatorNickname
         );
+        saveAndPush(notification);
     }
 
     /**
@@ -182,86 +91,32 @@ public class NotificationService {
      *
      * @param adminId 创建公告的管理员 ID，存入 created_by 字段
      */
+    @Transactional
     public void createSystemAnnouncement(String title, String content, List<Long> targetUserIds, Long adminId) {
-        Map<String, Object> data = new HashMap<>();
-        data.put("announcementTitle", title);
-        data.put("announcementContent", content);
-
-        if (targetUserIds == null || targetUserIds.isEmpty()) {
-            // 发送给所有用户 - 分批查询全部用户ID
+        List<Long> userIds = targetUserIds;
+        if (userIds == null || userIds.isEmpty()) {
             log.info("Broadcasting system announcement to all users: {}", title);
-            List<Long> allUserIds = userService.listAllUserIds();
-            if (allUserIds != null && !allUserIds.isEmpty()) {
-                int batchSize = 200;
-                for (int i = 0; i < allUserIds.size(); i += batchSize) {
-                    int end = Math.min(i + batchSize, allUserIds.size());
-                    List<Long> batch = allUserIds.subList(i, end);
-                    for (Long userId : batch) {
-                        createNotification(
-                            userId,
-                            NotificationType.SYSTEM_ANNOUNCEMENT.name(),
-                            title,
-                            content,
-                            data,
-                            null,
-                            "系统管理员",
-                            null,
-                            null,
-                            adminId
-                        );
-                    }
-                }
-            }
-        } else {
-            for (Long userId : targetUserIds) {
-                createNotification(
-                    userId,
-                    NotificationType.SYSTEM_ANNOUNCEMENT.name(),
-                    title,
-                    content,
-                    data,
-                    null,
-                    "系统管理员",
-                    null,
-                    null,
-                    adminId
-                );
-            }
+            userIds = userService.listAllUserIds();
         }
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+        for (Long userId : userIds) {
+            Notification notification = notificationFactory.createSystemAnnouncement(userId, title, content, adminId);
+            saveAndPush(notification);
+        }
+        log.info("[Notification] System announcement sent to {} users: {}", userIds.size(), title);
     }
 
     /**
-     * 创建通知的核心方法
+     * 持久化通知并实时推送
      */
-    private void createNotification(Long userId, String type, String title, String content,
-                                     Map<String, Object> data, Long senderId, String senderNickname,
-                                     String senderAvatar, Long relatedId, Long createdBy) {
-        try {
-            Notification notification = new Notification();
-            notification.setUserId(userId);
-            notification.setType(type);
-            notification.setTitle(title);
-            notification.setContent(content);
-            notification.setData(data != null ? objectMapper.writeValueAsString(data) : null);
-            notification.setSenderId(senderId);
-            notification.setSenderNickname(senderNickname);
-            notification.setSenderAvatar(senderAvatar);
-            notification.setRelatedId(relatedId);
-            notification.setCreatedBy(createdBy);
-            notification.setIsRead(false);
-            notification.setCreatedAt(LocalDateTime.now());
-            notification.setUpdatedAt(LocalDateTime.now());
-
-            notificationMapper.insert(notification);
-
-            // 实时推送通知
-            NotificationVO notificationVO = buildNotificationVO(notification);
-            wsPushService.pushToUser(userId, new WsEvent<>("NOTIFICATION", notificationVO));
-
-            log.info("Notification created: userId={}, type={}, title={}", userId, type, title);
-        } catch (JsonProcessingException e) {
-            log.error("Failed to serialize notification data", e);
-        }
+    private void saveAndPush(Notification notification) {
+        notificationMapper.insert(notification);
+        NotificationVO notificationVO = buildNotificationVO(notification);
+        wsPushService.pushToUser(notification.getUserId(), new WsEvent<>("NOTIFICATION", notificationVO));
+        log.info("Notification created: userId={}, type={}, title={}",
+            notification.getUserId(), notification.getType(), notification.getTitle());
     }
 
     /**
@@ -417,20 +272,6 @@ public class NotificationService {
      * 构建通知VO
      */
     private NotificationVO buildNotificationVO(Notification notification) {
-        return NotificationVO.builder()
-            .id(notification.getId())
-            .type(notification.getType())
-            .title(notification.getTitle())
-            .content(notification.getContent())
-            .data(notification.getData())
-            .senderId(notification.getSenderId())
-            .senderNickname(notification.getSenderNickname())
-            .senderAvatar(notification.getSenderAvatar())
-            .relatedId(notification.getRelatedId())
-            .createdBy(notification.getCreatedBy())
-            .isRead(notification.getIsRead())
-            .readAt(notification.getReadAt())
-            .createdAt(notification.getCreatedAt())
-            .build();
+        return notificationMapping.toNotificationVO(notification);
     }
 }

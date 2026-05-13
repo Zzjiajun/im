@@ -3,6 +3,13 @@
     "title": "WeChat-style IM",
     "subtitle": "For your self-hosted backend"
   },
+  "accessRestricted": {
+    "title": "Access restricted",
+    "country": "This service is only available from Australia.",
+    "locale": "Set your browser’s primary language to English (United States) or English (United Kingdom). Other languages (including English (Australia)) are not accepted for this build.",
+    "network": "We could not verify your region. Check your connection and try again.",
+    "hint": "In Chrome/Edge: Settings → Languages → set the first language to English (US) or English (UK), then reload this page."
+  },
   "auth": {
     "login": "Log in",
     "register": "Sign up",
@@ -12,6 +19,8 @@
     "nickname": "Nickname",
     "phoneLogin": "Phone",
     "emailLogin": "Email",
+    "emailPasswordLogin": "Email password",
+    "phoneCodeLogin": "Phone code",
     "noAccount": "No account? Register",
     "hasAccount": "Have an account? Log in",
     "loginSuccess": "Logged in",
@@ -25,6 +34,10 @@
     "passwordMin": "At least 6 characters",
     "accountRequired": "Enter your account first",
     "waitSeconds": "Wait {n}s",
+    "verifyCode": "Verification code",
+    "verifyCodePlaceholder": "6-digit code",
+    "sendCodeBtn": "Send code",
+    "phoneAutoRegisterHint": "Unregistered phone numbers will be created automatically",
     "registerHint": "If verify-on-register is enabled, send and enter the code",
     "verifyOptional": "optional",
     "verifyRequired": "required",

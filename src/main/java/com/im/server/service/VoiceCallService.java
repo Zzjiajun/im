@@ -3,6 +3,7 @@ package com.im.server.service;
 import com.im.server.agora.token.RtcTokenBuilder2;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.server.common.BusinessException;
+import com.im.server.common.RedisKeyConstants;
 import com.im.server.config.AgoraProperties;
 import com.im.server.model.entity.Conversation;
 import com.im.server.model.enums.ConversationType;
@@ -17,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +34,7 @@ public class VoiceCallService {
     private final WsPushService wsPushService;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final RedissonClient redissonClient;
 
     public VoiceCallService(
         AgoraProperties agoraProperties,
@@ -39,7 +43,8 @@ public class VoiceCallService {
         OnlineStatusService onlineStatusService,
         WsPushService wsPushService,
         StringRedisTemplate stringRedisTemplate,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        RedissonClient redissonClient
     ) {
         this.agoraProperties = agoraProperties;
         this.conversationService = conversationService;
@@ -48,6 +53,7 @@ public class VoiceCallService {
         this.wsPushService = wsPushService;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
+        this.redissonClient = redissonClient;
     }
 
     public VoiceCallVO start(Long callerUserId, Long conversationId) {
@@ -350,16 +356,30 @@ public class VoiceCallService {
         if (age < Math.max(5, agoraProperties.getRingTimeoutSeconds())) {
             return session;
         }
-        session.status = VoiceCallStatus.ENDED.name();
-        session.reason = "TIMEOUT";
-        session.endedAt = LocalDateTime.now();
-        saveSession(session);
-        VoiceCallVO vo = toVO(session);
-        appendCallRecord(session);
-        logCallEvent("timeout", session, null, "振铃超时自动结束");
-        wsPushService.pushToUsers(Set.of(session.callerUserId, session.calleeUserId), new WsEvent<>("CALL_ENDED", vo));
-        clearIndexes(session);
-        throw new BusinessException("通话已超时");
+        // 分布式锁：防止多实例同时处理超时
+        RLock lock = redissonClient.getLock(RedisKeyConstants.lock("voice-call-timeout:" + session.callId));
+        if (!lock.tryLock()) {
+            throw new BusinessException("通话已超时");
+        }
+        try {
+            // double-check：加锁后重新加载，确认未被其他实例先处理
+            CallSession reloaded = loadSession(session.callId);
+            if (reloaded != null && !VoiceCallStatus.RINGING.name().equals(reloaded.status)) {
+                throw new BusinessException("通话已超时");
+            }
+            session.status = VoiceCallStatus.ENDED.name();
+            session.reason = "TIMEOUT";
+            session.endedAt = LocalDateTime.now();
+            saveSession(session);
+            VoiceCallVO vo = toVO(session);
+            appendCallRecord(session);
+            logCallEvent("timeout", session, null, "振铃超时自动结束");
+            wsPushService.pushToUsers(Set.of(session.callerUserId, session.calleeUserId), new WsEvent<>("CALL_ENDED", vo));
+            clearIndexes(session);
+            throw new BusinessException("通话已超时");
+        } finally {
+            lock.unlock();
+        }
     }
 
     private CallSession loadSession(String callId) {
@@ -397,11 +417,11 @@ public class VoiceCallService {
     }
 
     private String callKey(String callId) {
-        return "im:voice-call:call:" + callId;
+        return RedisKeyConstants.voiceCallSession(callId);
     }
 
     private String userCallKey(Long userId) {
-        return "im:voice-call:user:" + userId;
+        return RedisKeyConstants.voiceCallUser(userId);
     }
 
     @Data

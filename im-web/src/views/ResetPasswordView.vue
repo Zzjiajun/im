@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { PublicAuthConfig } from '@/types/api'
+import type { AuthType, PublicAuthConfig } from '@/types/api'
 import * as authApi from '@/api/auth'
 import { setLocale, type LocaleTag } from '@/i18n'
 
@@ -10,13 +10,17 @@ const { t, locale } = useI18n()
 const router = useRouter()
 
 const publicCfg = ref<PublicAuthConfig | null>(null)
+const authType = ref<AuthType>('EMAIL')
 
 const deliveryHint = computed(() => {
   const p = publicCfg.value
   if (!p) return ''
-  if (!p.emailDeliveryAvailable) return t('auth.emailUnavailable')
+  if (authType.value === 'EMAIL' && !p.emailDeliveryAvailable) return t('auth.emailUnavailable')
   return ''
 })
+const phoneAuthEnabled = computed(() => publicCfg.value?.phoneAuthEnabled === true)
+const smsStub = computed(() => publicCfg.value?.smsStubMode === true)
+
 const account = ref('')
 const verifyCode = ref('')
 const newPassword = ref('')
@@ -27,6 +31,7 @@ const codeSec = ref(0)
 let codeTimer: ReturnType<typeof setInterval> | null = null
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const phoneRe = /^1\d{10}$/
 
 function onLang(e: Event) {
   const v = (e.target as HTMLSelectElement).value as LocaleTag
@@ -53,22 +58,35 @@ function startCodeCooldown() {
   }, 1000)
 }
 
-async function sendCode() {
-  err.value = ''
+function validateAccount(): boolean {
   const acc = account.value.trim()
   if (!acc) {
     err.value = t('auth.accountRequired')
-    return
+    return false
   }
-  if (!emailRe.test(acc)) {
-    err.value = t('auth.invalidEmail')
-    return
+  if (authType.value === 'EMAIL') {
+    if (!emailRe.test(acc)) {
+      err.value = t('auth.invalidEmail')
+      return false
+    }
+  } else {
+    if (!phoneRe.test(acc)) {
+      err.value = t('auth.invalidPhone')
+      return false
+    }
   }
+  return true
+}
+
+async function sendCode() {
+  err.value = ''
+  const acc = account.value.trim()
+  if (!validateAccount()) return
   if (codeSec.value > 0 || codeBusy.value) return
   codeBusy.value = true
   try {
     await authApi.sendVerifyCode({
-      authType: 'EMAIL',
+      authType: authType.value,
       account: acc,
       purpose: 'RESET_PASSWORD',
     })
@@ -87,10 +105,7 @@ async function submit() {
     err.value = t('common.error')
     return
   }
-  if (!emailRe.test(acc)) {
-    err.value = t('auth.invalidEmail')
-    return
-  }
+  if (!validateAccount()) return
   if (newPassword.value.length < 6) {
     err.value = t('auth.passwordMin')
     return
@@ -98,7 +113,7 @@ async function submit() {
   busy.value = true
   try {
     await authApi.resetPassword({
-      authType: 'EMAIL',
+      authType: authType.value,
       account: acc,
       verifyCode: verifyCode.value.trim(),
       newPassword: newPassword.value,
@@ -117,7 +132,7 @@ async function submit() {
     <div class="card">
       <header class="head">
         <h1>{{ t('auth.resetPasswordTitle') }}</h1>
-        <p class="mode-note">{{ t('auth.emailOnlyMode') }}</p>
+        <p v-if="!phoneAuthEnabled" class="mode-note">{{ t('auth.emailOnlyMode') }}</p>
         <select
           class="lang"
           :value="locale === 'en' ? 'en' : 'zh-CN'"
@@ -128,19 +143,37 @@ async function submit() {
         </select>
       </header>
 
+      <div v-if="phoneAuthEnabled" class="tabs">
+        <button
+          :class="['tab', authType === 'EMAIL' ? 'active' : '']"
+          @click="authType = 'EMAIL'"
+        >
+          {{ t('auth.emailLogin') }}
+        </button>
+        <button
+          :class="['tab', authType === 'PHONE' ? 'active' : '']"
+          @click="authType = 'PHONE'"
+        >
+          {{ t('auth.phoneLogin') }}
+        </button>
+      </div>
+
       <p v-if="deliveryHint" class="delivery-hint">{{ deliveryHint }}</p>
+      <p v-if="smsStub && authType === 'PHONE'" class="delivery-hint">
+        {{ t('auth.smsStub') }}
+      </p>
 
       <form class="form" @submit.prevent="submit">
         <label>
           <span>{{ t('auth.account') }}</span>
           <input
             v-model="account"
-            type="email"
-            inputmode="email"
+            :type="authType === 'EMAIL' ? 'email' : 'tel'"
+            :inputmode="authType === 'EMAIL' ? 'email' : 'numeric'"
             class="wx-input"
             required
             autocomplete="username"
-            :placeholder="t('auth.emailPlaceholder')"
+            :placeholder="authType === 'EMAIL' ? t('auth.emailPlaceholder') : t('auth.phonePlaceholder')"
           />
         </label>
         <div class="code-row">
@@ -229,6 +262,28 @@ async function submit() {
   padding: 4px 8px;
   border-radius: 4px;
   border: 1px solid var(--wx-border);
+}
+.tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--wx-border);
+}
+.tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s;
+}
+.tab.active {
+  background: var(--wx-green, #07c160);
+  color: #fff;
+  font-weight: 600;
 }
 .form {
   display: flex;

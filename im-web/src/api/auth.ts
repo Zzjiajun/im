@@ -10,6 +10,7 @@ import type {
   ResetPasswordRequest,
   SendVerifyCodeRequest,
   UpdateProfileRequest,
+  VerifyCodeLoginRequest,
   SnowflakeId,
   User,
   UserSessionVO,
@@ -29,6 +30,10 @@ export function register(body: RegisterRequest) {
 
 export function sendVerifyCode(body: SendVerifyCodeRequest) {
   return unwrap<void>(http.post('/auth/send-code', body))
+}
+
+export function loginByVerifyCode(body: VerifyCodeLoginRequest) {
+  return unwrap<LoginResponse>(http.post('/auth/login-code', body))
 }
 
 export function resetPassword(body: ResetPasswordRequest) {

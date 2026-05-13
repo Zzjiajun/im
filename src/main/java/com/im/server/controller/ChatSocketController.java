@@ -1,12 +1,14 @@
 package com.im.server.controller;
 
+import com.im.server.model.dto.MarkDeliveredRequest;
 import com.im.server.model.dto.SendMessageRequest;
 import com.im.server.model.dto.WsChatPayload;
 import com.im.server.model.dto.WsDeliverPayload;
 import com.im.server.model.dto.WsTypingPayload;
 import com.im.server.model.vo.ChatMessageVO;
-import com.im.server.service.MessageService;
 import com.im.server.service.RealtimeEventService;
+import com.im.server.service.message.MessageReadService;
+import com.im.server.service.message.MessageSendService;
 import java.security.Principal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -17,7 +19,8 @@ import org.springframework.stereotype.Controller;
 @RequiredArgsConstructor
 public class ChatSocketController {
 
-    private final MessageService messageService;
+    private final MessageSendService messageSendService;
+    private final MessageReadService messageReadService;
     private final RealtimeEventService realtimeEventService;
 
     @MessageMapping("/chat.send")
@@ -32,7 +35,7 @@ public class ChatSocketController {
         request.setMentionAll(payload.getMentionAll());
         request.setMentionUserIds(payload.getMentionUserIds());
         request.setClientMsgId(payload.getClientMsgId());
-        return messageService.sendMessage(Long.parseLong(principal.getName()), request);
+        return messageSendService.sendMessage(Long.parseLong(principal.getName()), request);
     }
 
     @MessageMapping("/chat.typing")
@@ -46,8 +49,8 @@ public class ChatSocketController {
 
     @MessageMapping("/chat.deliver")
     public void deliver(@Payload WsDeliverPayload payload, Principal principal) {
-        var request = new com.im.server.model.dto.MarkDeliveredRequest();
+        var request = new MarkDeliveredRequest();
         request.setMessageIds(payload.getMessageIds());
-        messageService.markDelivered(Long.parseLong(principal.getName()), request);
+        messageReadService.markDelivered(Long.parseLong(principal.getName()), request);
     }
 }

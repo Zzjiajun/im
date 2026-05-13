@@ -2,13 +2,16 @@ package com.im.server.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.im.server.common.ApiResponse;
+import com.im.server.common.SlidingWindowRateLimiter;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -30,6 +33,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final RateLimitProperties properties;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final SlidingWindowRateLimiter slidingWindowRateLimiter;
+    private final MeterRegistry meterRegistry;
+
+    private Counter rateLimitHitCounter;
+
+    private static final long WINDOW_MS = 60_000L;
+
+    @PostConstruct
+    void initMetrics() {
+        this.rateLimitHitCounter = Counter.builder("im.ratelimit.hits")
+            .description("Total rate limit rejections")
+            .register(meterRegistry);
+    }
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -45,26 +61,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        String ip = clientIp(request);
+        String ip = clientIp(request, properties.isTrustForwardedHeaders());
         int limit;
-        String bucket;
+        String bucketPrefix;
         if (isAuthHeavy(uri)) {
             limit = Math.max(5, properties.getAuthIpPerMinute());
-            bucket = "rl:auth:" + ip + ":" + minuteBucket();
+            bucketPrefix = "rl:auth:" + ip;
         } else if (uri.contains("/messages/search")) {
             limit = Math.max(5, properties.getSearchPerMinute());
-            bucket = "rl:search:" + ip + ":" + minuteBucket();
+            bucketPrefix = "rl:search:" + ip;
         } else {
             limit = Math.max(30, properties.getGeneralPerMinute());
-            bucket = "rl:api:" + ip + ":" + minuteBucket();
+            bucketPrefix = "rl:api:" + ip;
         }
 
         try {
-            Long n = stringRedisTemplate.opsForValue().increment(bucket);
-            if (n != null && n == 1L) {
-                stringRedisTemplate.expire(bucket, 2, TimeUnit.MINUTES);
-            }
-            if (n != null && n > limit) {
+            boolean allowed = slidingWindowRateLimiter.tryAcquire(bucketPrefix, limit, WINDOW_MS);
+            if (!allowed) {
+                rateLimitHitCounter.increment();
                 response.setStatus(429);
                 response.setCharacterEncoding(StandardCharsets.UTF_8.name());
                 response.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -81,6 +95,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static boolean isAuthHeavy(String uri) {
         return uri.startsWith("/api/auth/login")
+            || uri.startsWith("/api/auth/login-code")
             || uri.startsWith("/api/auth/register")
             || uri.startsWith("/api/auth/send-code")
             || uri.startsWith("/api/auth/refresh")
@@ -88,13 +103,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
             || uri.startsWith("/api/auth/oauth/login");
     }
 
-    private static long minuteBucket() {
-        return System.currentTimeMillis() / 60_000L;
-    }
-
-    private static String clientIp(HttpServletRequest request) {
+    private static String clientIp(HttpServletRequest request, boolean trustForwardedHeaders) {
         String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
+        if (trustForwardedHeaders && xff != null && !xff.trim().isEmpty()) {
             return xff.split(",")[0].trim();
         }
         return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();

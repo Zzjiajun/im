@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as authApi from '@/api/auth'
 import { getToken, setToken } from '@/utils/token'
-import type { LoginRequest, LoginResponse, RegisterRequest, User } from '@/types/api'
+import type { LoginRequest, LoginResponse, RegisterRequest, VerifyCodeLoginRequest, User } from '@/types/api'
 
 const REFRESH_KEY = 'im_refresh'
 
@@ -33,6 +33,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(payload: LoginRequest) {
     const res = await authApi.login(payload)
+    applyLoginResponse(res)
+    await refreshProfile()
+  }
+
+  async function loginByVerifyCode(payload: VerifyCodeLoginRequest) {
+    const res = await authApi.loginByVerifyCode(payload)
     applyLoginResponse(res)
     await refreshProfile()
   }
@@ -90,6 +96,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoggedIn,
     isAdmin,
     login,
+    loginByVerifyCode,
     register,
     refreshProfile,
     syncTokenFromStorage,

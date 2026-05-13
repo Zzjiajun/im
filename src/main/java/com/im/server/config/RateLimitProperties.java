@@ -15,4 +15,6 @@ public class RateLimitProperties {
     private int authIpPerMinute = 45;
     /** 消息搜索：每 key 每分钟上限 */
     private int searchPerMinute = 60;
+    /** 是否信任反向代理传入的 X-Forwarded-For；默认关闭，避免客户端伪造绕过限流 */
+    private boolean trustForwardedHeaders = false;
 }

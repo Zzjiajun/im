@@ -18,7 +18,8 @@ function printLanLoginUrls() {
         printed = true;
 
         const addr = server.httpServer?.address();
-        const actualPort = typeof addr === "object" && addr?.port ? addr.port : 5173;
+        const actualPort =
+          typeof addr === "object" && addr?.port ? addr.port : 5173;
 
         const nets = networkInterfaces();
         const urls = new Set<string>();

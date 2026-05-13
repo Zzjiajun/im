@@ -23,6 +23,7 @@ public class StickerService {
 
     private final StickerPackMapper stickerPackMapper;
     private final StickerItemMapper stickerItemMapper;
+    private final com.im.server.service.mapper.StickerMapper stickerMapping;
 
     public List<StickerPackDetailVO> listEnabledPacks() {
         List<StickerPack> packs = stickerPackMapper.selectList(
@@ -79,22 +80,8 @@ public class StickerService {
                 .orderByAsc(StickerItem::getSortOrder)
                 .orderByAsc(StickerItem::getId)
         );
-        List<StickerPackDetailVO.StickerItemVO> itemVos = new ArrayList<>();
-        for (StickerItem it : items) {
-            itemVos.add(StickerPackDetailVO.StickerItemVO.builder()
-                .itemId(it.getId())
-                .code(it.getCode())
-                .imageUrl(it.getImageUrl())
-                .sortOrder(it.getSortOrder())
-                .build());
-        }
-        return StickerPackDetailVO.builder()
-            .packId(pack.getId())
-            .code(pack.getCode())
-            .name(pack.getName())
-            .coverUrl(pack.getCoverUrl())
-            .sortOrder(pack.getSortOrder())
-            .items(itemVos)
-            .build();
+        StickerPackDetailVO vo = stickerMapping.toDetail(pack);
+        vo.setItems(items.stream().map(stickerMapping::toItem).toList());
+        return vo;
     }
 }

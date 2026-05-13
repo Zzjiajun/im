@@ -1,5 +1,6 @@
 package com.im.server.service;
 
+import com.im.server.common.RedisKeyConstants;
 import com.im.server.mapper.UserMapper;
 import com.im.server.model.entity.User;
 import java.util.concurrent.TimeUnit;
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class UserAccountStatusService {
 
-    private static final String KEY_PREFIX = "im:u:active:";
+    private static final String KEY_PREFIX = RedisKeyConstants.userActivePrefix();
 
     private final UserMapper userMapper;
     private final StringRedisTemplate stringRedisTemplate;

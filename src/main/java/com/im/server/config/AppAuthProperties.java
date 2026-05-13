@@ -21,15 +21,30 @@ public class AppAuthProperties {
      * 配置 {@link #smsWebhook} 并启用后，将走 Webhook 发送，此时前端应视为非「仅日志」模式。
      */
     private boolean smsStubMode = true;
+    /** Unimatrix 短信（直连发送） */
+    private UnimatrixSmsProperties unimatrixSms = new UnimatrixSmsProperties();
+
+    /** 阿里云短信（直连发送） */
+    private AliyunSmsProperties aliyunSms = new AliyunSmsProperties();
+
     /** 可选：HTTP 回调将验证码交给自建服务，再由其调用阿里云/腾讯云短信 */
     private SmsWebhookProperties smsWebhook = new SmsWebhookProperties();
     /** true：允许手机号注册/登录/发码；false 时仅允许邮箱（默认 false） */
-    private boolean phoneAuthEnabled = false;
+    private boolean phoneAuthEnabled = true;
+
+    /** true：验证码登录时，如果账号不存在则自动注册 */
+    private boolean autoRegisterOnCodeLogin = true;
 
     /**
      * 给前端的「是否仅日志桩」提示：Webhook 真实发送时为 false。
      */
     public boolean isSmsStubModeForPublicApi() {
+        if (unimatrixSms != null && unimatrixSms.isEnabled() && StringUtils.isNotBlank(unimatrixSms.getAccessKeyId())) {
+            return false;
+        }
+        if (aliyunSms != null && aliyunSms.isEnabled() && StringUtils.isNotBlank(aliyunSms.getAccessKeyId())) {
+            return false;
+        }
         if (smsWebhook != null && smsWebhook.isEnabled() && StringUtils.isNotBlank(smsWebhook.getUrl())) {
             return false;
         }
@@ -37,8 +52,30 @@ public class AppAuthProperties {
     }
 
     @Data
+    public static class UnimatrixSmsProperties {
+        private boolean enabled = true;
+        private String accessKeyId;
+        private String accessKeySecret;
+        private String endpoint = "https://api-cn.unimtx.com";
+        private String signature;
+        private String templateId = "pub_otp_zh_ttl3";
+        private String contentTemplate = "您的验证码是{code}，{ttlMinutes}分钟内有效。";
+    }
+
+    @Data
+    public static class AliyunSmsProperties {
+        private boolean enabled = true;
+        private String accessKeyId;
+        private String accessKeySecret;
+        /** 短信签名名称（需在阿里云短信控制台申请） */
+        private String signName;
+        /** 短信模板CODE（需在阿里云短信控制台申请，模板变量需包含 ${code}） */
+        private String templateCode;
+    }
+
+    @Data
     public static class SmsWebhookProperties {
-        private boolean enabled = false;
+        private boolean enabled = true;
         /** POST 接收 JSON：phone, code, purpose, ttlSeconds */
         private String url;
         /** 可选：附加请求头，如 Authorization */

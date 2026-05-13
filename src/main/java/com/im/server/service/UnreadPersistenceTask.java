@@ -24,7 +24,7 @@ public class UnreadPersistenceTask {
     /**
      * 每 5 分钟持久化一次未读数。
      */
-    @Scheduled(fixedRate = 300_000)
+    @Scheduled(fixedDelay = 300_000)
     public void persistUnreadCounts() {
         try {
             unreadCacheService.persistAllUnread();

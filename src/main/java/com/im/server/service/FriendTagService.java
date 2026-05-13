@@ -31,6 +31,7 @@ public class FriendTagService {
     private final FriendTagMapper friendTagMapper;
     private final FriendTagMemberMapper friendTagMemberMapper;
     private final FriendRelationMapper friendRelationMapper;
+    private final com.im.server.service.mapper.FriendTagMapper friendTagMapping;
 
     @Transactional
     public FriendTagVO createTag(Long userId, CreateFriendTagRequest request) {
@@ -151,12 +152,6 @@ public class FriendTagService {
     }
 
     private FriendTagVO toVo(FriendTag tag, int memberCount) {
-        return FriendTagVO.builder()
-            .tagId(tag.getId())
-            .name(tag.getName())
-            .sortOrder(tag.getSortOrder())
-            .memberCount(memberCount)
-            .createdAt(tag.getCreatedAt())
-            .build();
+        return friendTagMapping.toFriendTagVO(tag, memberCount);
     }
 }

@@ -27,7 +27,7 @@ public class CurrentUserArgumentResolver implements HandlerMethodArgumentResolve
             (Authentication) webRequest.getUserPrincipal();
         if (authentication == null || !authentication.isAuthenticated()
             || !(authentication.getPrincipal() instanceof LoginUser)) {
-            return null;
+            throw new BusinessException("未登录");
         }
         return authentication.getPrincipal();
     }

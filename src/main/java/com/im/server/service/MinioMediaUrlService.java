@@ -1,9 +1,13 @@
 package com.im.server.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.im.server.config.MinioProperties;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
 import io.minio.http.Method;
+import jakarta.annotation.PostConstruct;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -19,8 +23,21 @@ public class MinioMediaUrlService {
 
     private static final int PRESIGN_SECONDS = 7 * 24 * 60 * 60;
 
+    /**
+     * 预签名 URL 本地缓存（10 分钟 TTL），避免每次加载消息都调用 MinIO API 生成签名。
+     */
+    private Cache<String, String> presignUrlCache;
+
     private final MinioClient minioClient;
     private final MinioProperties minioProperties;
+
+    @PostConstruct
+    void initCache() {
+        this.presignUrlCache = Caffeine.newBuilder()
+            .maximumSize(20_000)
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .build();
+    }
 
     /**
      * 若 url 为本服务配置的 MinIO 对象地址，则返回短期预签名 URL；否则原样返回。
@@ -30,9 +47,13 @@ public class MinioMediaUrlService {
             return url;
         }
         return extractObjectName(url)
-            .map(this::presignOrNull)
+            .map(this::presignCached)
             .filter(StringUtils::isNotBlank)
             .orElse(url);
+    }
+
+    private String presignCached(String objectName) {
+        return presignUrlCache.get(objectName, this::presignOrNull);
     }
 
     private java.util.Optional<String> extractObjectName(String url) {

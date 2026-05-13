@@ -5,6 +5,7 @@ import com.im.server.common.BusinessException;
 import com.im.server.mapper.FriendRelationMapper;
 import com.im.server.mapper.FriendRequestMapper;
 import com.im.server.mapper.UserMapper;
+import org.springframework.dao.DuplicateKeyException;
 import com.im.server.model.dto.UpdateRemarkRequest;
 import com.im.server.model.dto.HandleFriendRequestDTO;
 import com.im.server.model.dto.SendFriendRequestDTO;
@@ -16,6 +17,9 @@ import com.im.server.model.vo.UserSimpleVO;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -52,6 +56,17 @@ public class FriendService {
         );
         if (count > 0) {
             throw new BusinessException("你们已经是好友");
+        }
+
+        // 检查是否有待处理的申请
+        long pending = friendRequestMapper.selectCount(
+            new LambdaQueryWrapper<FriendRequest>()
+                .eq(FriendRequest::getFromUserId, userId)
+                .eq(FriendRequest::getToUserId, request.getToUserId())
+                .eq(FriendRequest::getStatus, FriendRequestStatus.PENDING.name())
+        );
+        if (pending > 0) {
+            throw new BusinessException("已发送过好友申请，请等待对方处理");
         }
 
         FriendRequest friendRequest = new FriendRequest();
@@ -103,13 +118,20 @@ public class FriendService {
             new LambdaQueryWrapper<FriendRelation>().eq(FriendRelation::getUserId, userId)
         );
         List<Long> friendIds = relations.stream().map(FriendRelation::getFriendUserId).toList();
+        if (friendIds.isEmpty()) {
+            return List.of();
+        }
+        // 批量查询所有好友用户信息（替代逐条 selectById，避免 N+1）
+        Map<Long, User> userMap = userMapper.selectBatchIds(friendIds).stream()
+            .filter(u -> u != null)
+            .collect(Collectors.toMap(User::getId, Function.identity()));
         java.util.Map<Long, List<Long>> tagMap = friendTagService.mapFriendToTagIds(userId, friendIds);
         List<UserSimpleVO> friends = new ArrayList<>();
         for (FriendRelation relation : relations) {
             if (tagId != null && !friendTagService.isFriendInTag(userId, relation.getFriendUserId(), tagId)) {
                 continue;
             }
-            User user = userMapper.selectById(relation.getFriendUserId());
+            User user = userMap.get(relation.getFriendUserId());
             if (user != null) {
                 friends.add(UserSimpleVO.builder()
                     .userId(user.getId())
@@ -189,19 +211,14 @@ public class FriendService {
     }
 
     private void saveRelation(Long userId, Long friendUserId) {
-        // 避免重复插入好友关系
-        long existing = friendRelationMapper.selectCount(
-            new LambdaQueryWrapper<FriendRelation>()
-                .eq(FriendRelation::getUserId, userId)
-                .eq(FriendRelation::getFriendUserId, friendUserId)
-        );
-        if (existing > 0) {
-            return;
-        }
         FriendRelation relation = new FriendRelation();
         relation.setUserId(userId);
         relation.setFriendUserId(friendUserId);
         relation.setCreatedAt(LocalDateTime.now());
-        friendRelationMapper.insert(relation);
+        try {
+            friendRelationMapper.insert(relation);
+        } catch (DuplicateKeyException ignored) {
+            // UK (user_id, friend_user_id) 防并发重复插入
+        }
     }
 }

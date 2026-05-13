@@ -55,4 +55,14 @@ public class WebSocketSessionRegistry {
     public int activeSessionCount() {
         return sessionToUser.size();
     }
+
+    /** 获取活跃连接总数（Micrometer 指标用） */
+    public int getActiveConnectionCount() {
+        return sessionToUser.size();
+    }
+
+    /** 获取在线用户总数（Micrometer 指标用） */
+    public int getOnlineUserCount() {
+        return userToSessions.size();
+    }
 }

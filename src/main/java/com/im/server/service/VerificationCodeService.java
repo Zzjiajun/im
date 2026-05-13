@@ -1,6 +1,7 @@
 package com.im.server.service;
 
 import com.im.server.common.BusinessException;
+import com.im.server.common.RedisKeyConstants;
 import com.im.server.config.AppAuthProperties;
 import com.im.server.model.enums.AuthType;
 import com.im.server.model.enums.VerifyCodePurpose;
@@ -25,7 +26,7 @@ public class VerificationCodeService {
     public void sendCode(AuthType authType, String account, VerifyCodePurpose purpose) {
         String normalized = StringUtils.trimToEmpty(account);
         int interval = Math.max(30, appAuthProperties.getSendCodeMinIntervalSeconds());
-        String rateKey = "im:send:rate:" + purpose.name() + ":" + authType.name() + ":" + normalized;
+        String rateKey = RedisKeyConstants.verifyCodeRateLimit(purpose.name(), authType.name(), normalized);
         Boolean firstInWindow = stringRedisTemplate.opsForValue()
             .setIfAbsent(rateKey, "1", Duration.ofSeconds(interval));
         if (Boolean.FALSE.equals(firstInWindow)) {
@@ -57,6 +58,6 @@ public class VerificationCodeService {
     }
 
     private String redisKey(VerifyCodePurpose purpose, AuthType authType, String account) {
-        return "im:verify:" + purpose.name() + ":" + authType.name() + ":" + account;
+        return RedisKeyConstants.verifyCode(purpose.name(), authType.name(), account);
     }
 }

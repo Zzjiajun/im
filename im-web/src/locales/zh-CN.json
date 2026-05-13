@@ -3,6 +3,13 @@
     "title": "微信风格 IM",
     "subtitle": "对接自建 IM 后端"
   },
+  "accessRestricted": {
+    "title": "无法访问",
+    "country": "本服务仅面向澳大利亚地区开放。",
+    "locale": "请将浏览器的首选语言设为「英语（美国）」或「英语（英国）」；其他语言（含「英语（澳大利亚）」）当前不允许使用。",
+    "network": "无法完成地区校验，请检查网络后重试。",
+    "hint": "在 Chrome/Edge 中：设置 → 语言 → 将「英语(美国)」或「英语(英国)」设为第一语言，然后刷新本页。"
+  },
   "auth": {
     "login": "登录",
     "register": "注册",
@@ -12,6 +19,8 @@
     "nickname": "昵称",
     "phoneLogin": "手机号",
     "emailLogin": "邮箱",
+    "emailPasswordLogin": "邮箱密码登录",
+    "phoneCodeLogin": "手机验证码登录",
     "noAccount": "没有账号？去注册",
     "hasAccount": "已有账号？去登录",
     "loginSuccess": "登录成功",
@@ -25,6 +34,10 @@
     "passwordMin": "密码至少 6 位",
     "accountRequired": "请先填写账号",
     "waitSeconds": "再等 {n} 秒",
+    "verifyCode": "验证码",
+    "verifyCodePlaceholder": "6 位验证码",
+    "sendCodeBtn": "发送验证码",
+    "phoneAutoRegisterHint": "未注册手机号会自动创建账号并登录",
     "registerHint": "若后端开启注册验证码，请先获取验证码并填写",
     "verifyOptional": "可选",
     "verifyRequired": "必填",

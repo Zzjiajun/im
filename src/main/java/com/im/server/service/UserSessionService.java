@@ -118,20 +118,15 @@ public class UserSessionService {
         }
     }
 
+    private final com.im.server.service.mapper.UserSessionMapper sessionMapping;
+
     public List<com.im.server.model.vo.UserSessionVO> listSessions(Long userId) {
         return userSessionMapper.selectList(
             new LambdaQueryWrapper<UserSession>()
                 .eq(UserSession::getUserId, userId)
                 .orderByDesc(UserSession::getLastActiveAt)
         ).stream()
-            .map(s -> com.im.server.model.vo.UserSessionVO.builder()
-                .sessionId(s.getId())
-                .deviceId(s.getDeviceId())
-                .deviceName(s.getDeviceName())
-                .createdAt(s.getCreatedAt())
-                .lastActiveAt(s.getLastActiveAt())
-                .revoked(Integer.valueOf(1).equals(s.getRevoked()))
-                .build())
+            .map(sessionMapping::toUserSessionVO)
             .collect(Collectors.toList());
     }
 

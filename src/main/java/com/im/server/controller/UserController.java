@@ -8,10 +8,14 @@ import com.im.server.model.vo.UserSearchVO;
 import com.im.server.model.vo.UserSimpleVO;
 import com.im.server.security.LoginUser;
 import com.im.server.service.BlacklistService;
+import com.im.server.service.ConversationService;
+import com.im.server.service.FriendService;
 import com.im.server.service.OnlineStatusService;
 import com.im.server.service.UserService;
 import jakarta.validation.Valid;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +34,8 @@ public class UserController {
     private final UserService userService;
     private final OnlineStatusService onlineStatusService;
     private final BlacklistService blacklistService;
+    private final FriendService friendService;
+    private final ConversationService conversationService;
 
     @GetMapping("/search")
     public ApiResponse<List<UserSearchVO>> search(@CurrentUser LoginUser loginUser,
@@ -38,8 +44,11 @@ public class UserController {
     }
 
     @GetMapping("/online-status")
-    public ApiResponse<List<UserOnlineStatusVO>> onlineStatus(@RequestParam List<Long> userIds) {
-        return ApiResponse.success(onlineStatusService.listStatuses(userIds));
+    public ApiResponse<List<UserOnlineStatusVO>> onlineStatus(@CurrentUser LoginUser loginUser,
+                                                              @RequestParam List<Long> userIds) {
+        return ApiResponse.success(onlineStatusService.listAllowedStatuses(
+            userIds, allowedOnlineStatusUserIds(loginUser.getUserId())
+        ));
     }
 
     @PostMapping("/blacklist/{targetUserId}")
@@ -66,5 +75,14 @@ public class UserController {
                                                @Valid @RequestBody RegisterPushTokenRequest request) {
         userService.registerPushToken(loginUser.getUserId(), request);
         return ApiResponse.success("推送 Token 已登记", null);
+    }
+
+    private Set<Long> allowedOnlineStatusUserIds(Long currentUserId) {
+        Set<Long> allowed = new LinkedHashSet<>();
+        allowed.add(currentUserId);
+        allowed.addAll(friendService.listFriendIds(currentUserId));
+        // 批量查询所有会话的可见成员（替代逐会话查询，避免 N+1）
+        allowed.addAll(conversationService.listAllVisibleMemberIds(currentUserId));
+        return allowed;
     }
 }

@@ -33,6 +33,7 @@ public class UserService {
     private final UserMapper userMapper;
     private final FriendRelationMapper friendRelationMapper;
     private final UserPushTokenMapper userPushTokenMapper;
+    private final com.im.server.service.mapper.UserMapper userMapping;
 
     /** 本地 Caffeine 缓存：用户基本信息，TTL 5 分钟 */
     private Cache<Long, UserSimpleVO> simpleUserCache;
@@ -196,12 +197,18 @@ public class UserService {
     }
 
     private UserSimpleVO toSimpleUser(User user) {
-        return UserSimpleVO.builder()
-            .userId(user.getId())
-            .nickname(user.getNickname())
-            .avatar(user.getAvatar())
-            .phone(user.getPhone())
-            .email(user.getEmail())
-            .build();
+        return userMapping.toSimpleUser(user);
+    }
+
+    /**
+     * 获取完整的用户信息（含未脱敏的 phone/email）。
+     * 仅限用户本人查看自己的资料时使用，不应在好友列表、消息等场景调用。
+     */
+    public UserSimpleVO getSimpleUserFull(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        return userMapping.toSimpleUserFull(user);
     }
 }

@@ -50,6 +50,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         List<String> whiteList = List.of(
             "/api/auth/register",
             "/api/auth/login",
+            "/api/auth/login-code",
             "/api/auth/send-code",
             "/api/auth/reset-password",
             "/api/auth/refresh",

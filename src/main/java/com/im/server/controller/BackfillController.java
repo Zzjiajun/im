@@ -1,6 +1,9 @@
 package com.im.server.controller;
 
+import com.im.server.common.BusinessException;
+import com.im.server.common.CurrentUser;
 import com.im.server.config.ElasticsearchConfig;
+import com.im.server.security.LoginUser;
 import com.im.server.service.MessageBackfillService;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +38,11 @@ public class BackfillController {
      */
     @PostMapping("/backfill")
     public ResponseEntity<Map<String, Object>> backfill(
+            @CurrentUser LoginUser loginUser,
             @RequestParam(defaultValue = "500") int batchSize,
             @RequestParam(defaultValue = "0") long fromId,
             @RequestParam(defaultValue = "999999999") long maxId) {
+        assertAdmin(loginUser);
 
         log.info("[ES Backfill] 手动触发回填: batchSize={}, fromId={}, maxId={}", batchSize, fromId, maxId);
 
@@ -65,11 +70,18 @@ public class BackfillController {
      * 查看 ES 索引状态。
      */
     @PostMapping("/status")
-    public ResponseEntity<Map<String, Object>> status() {
+    public ResponseEntity<Map<String, Object>> status(@CurrentUser LoginUser loginUser) {
+        assertAdmin(loginUser);
         long count = messageBackfillService.countIndexed();
         return ResponseEntity.ok(Map.of(
             "success", true,
             "documentCount", count
         ));
+    }
+
+    private static void assertAdmin(LoginUser loginUser) {
+        if (loginUser == null || !loginUser.isAdmin()) {
+            throw new BusinessException("需要管理员权限");
+        }
     }
 }
