@@ -51,6 +51,10 @@ public class WebSocketStaleSessionCleanupTask {
         log.warn("[WS StaleCleanup] 发现 {} 个过期 session，开始清理", staleSessions.size());
 
         for (String sessionId : staleSessions) {
+            // 二次检查：从收集到处理之间，客户端可能已刷新心跳（STOMP 心跳每 20 秒一次）
+            if (!heartbeatService.isExpired(sessionId)) {
+                continue;
+            }
             Long userId = sessionRegistry.getUserId(sessionId);
             sessionRegistry.unregister(sessionId);
             heartbeatService.removeHeartbeat(sessionId);

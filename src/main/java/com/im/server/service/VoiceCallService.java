@@ -157,7 +157,7 @@ public class VoiceCallService {
         appendCallRecord(session);
         logCallEvent("reject", session, userId, "被叫拒接");
         wsPushService.pushToUsers(Set.of(session.callerUserId, session.calleeUserId), new WsEvent<>("CALL_REJECTED", vo));
-        clearIndexes(session);
+        // 不立即清理索引，让对方下次 GET /current 时自行发现 REJECTED 状态
         return vo;
     }
 
@@ -180,7 +180,7 @@ public class VoiceCallService {
             wasRinging ? "振铃阶段取消通话" : "已接通后挂断通话"
         );
         wsPushService.pushToUsers(Set.of(session.callerUserId, session.calleeUserId), new WsEvent<>("CALL_ENDED", vo));
-        clearIndexes(session);
+        // 不立即清理索引，让对方下次 GET /current 时自行发现 ENDED 状态
         return vo;
     }
 
@@ -375,7 +375,7 @@ public class VoiceCallService {
             appendCallRecord(session);
             logCallEvent("timeout", session, null, "振铃超时自动结束");
             wsPushService.pushToUsers(Set.of(session.callerUserId, session.calleeUserId), new WsEvent<>("CALL_ENDED", vo));
-            clearIndexes(session);
+            // 不立即清理索引，让对方下次 GET /current 时自行发现超时状态
             throw new BusinessException("通话已超时");
         } finally {
             lock.unlock();

@@ -8,7 +8,7 @@ spring:
     exclude:
   flyway:
     # 启用 Flyway 数据库迁移
-    enabled: ${FLYWAY_ENABLED:true}
+    enabled: ${FLYWAY_ENABLED:false}
     # 基线版本：如果已有数据库且表已存在，设置 baseline-on-migrate: true
     baseline-on-migrate: ${FLYWAY_BASELINE:true}
     # 基线条目版本号（默认为 1，表示已有数据库是 V1 之前的状态）

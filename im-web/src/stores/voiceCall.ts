@@ -80,8 +80,19 @@ export const useVoiceCallStore = defineStore('voiceCall', () => {
       }
       remoteJoined.value = false
     })
-    client.on('user-left', () => {
+    client.on('user-left', async () => {
       remoteJoined.value = false
+      // 通话中远端用户离开 Agora 频道（对方挂断），自动结束通话
+      if (phase.value === 'connected' && currentCall.value) {
+        const callId = currentCall.value.callId
+        try {
+          await callApi.endVoiceCall(callId)
+        } catch {
+          // 后端可能已完成清理，忽略错误
+        }
+        await leaveAgora()
+        resetState()
+      }
     })
     return client
   }
@@ -99,12 +110,7 @@ export const useVoiceCallStore = defineStore('voiceCall', () => {
   }
 
   function normalizeAgoraJoinUid(uid: string): string | number {
-    if (/^\d+$/.test(uid)) {
-      const n = Number(uid)
-      if (Number.isSafeInteger(n) && n >= 0) {
-        return n
-      }
-    }
+    // 后端用 buildTokenWithUserAccount 生成 token，UID 必须保持字符串类型
     return uid
   }
 
